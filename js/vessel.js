@@ -174,7 +174,18 @@
   Vessel.prototype.pilotStep = function (dt) {
     var ap = this.autopilot;
     if (!ap.on || !this.has('autopilot')) return;
-    /* positive error means "turn to starboard" in both modes */
+    /* positive error means "turn to starboard" in every mode */
+    if (ap.mode === 'wpt') {
+      if (!this.waypoint) { ap.mode = 'hdg'; ap.target = this.hdg; }
+      else {
+        var wd = U.len(this.waypoint.x - this.x, this.waypoint.y - this.y);
+        if (wd < 130) {
+          this._arrived = true; this.waypoint = null;
+          ap.mode = 'hdg'; ap.target = this.hdg;
+          this.engine.throttle = 0; this.engine.gear = 0;
+        } else ap.target = U.bearingOf(this.waypoint.x - this.x, this.waypoint.y - this.y);
+      }
+    }
     var err = ap.mode === 'wind' ? -U.deg(U.wrapPI(U.rad(this.awa - ap.target)))
                                  : U.deg(U.angDiff(ap.target, this.hdg));
     this.rudderCmd = U.clamp(err * 1.5 - U.deg(this.yawRate) * 3.2, -30, 30);
@@ -361,14 +372,20 @@
           N += (0.46 * s.loa_m - this.xCLR) * sT;
           /* digging in, or dragging */
           if (want > hold * 1.02) {
-            anc.dragging = Math.min(1, anc.dragging + dt * 0.4);
-            var slip = (want - hold) / Math.max(1, hold) * dt * 0.9;
-            anc.x += (this.x - anc.x) / adist * Math.min(slip, this.sog * dt);
-            anc.y += (this.y - anc.y) / adist * Math.min(slip, this.sog * dt);
-            anc.set = Math.max(0, anc.set - dt * 0.25);
+            var slip = Math.min((want - hold) / Math.max(1, hold) * dt * 0.9, this.sog * dt);
+            anc.x += (this.x - anc.x) / adist * slip;
+            anc.y += (this.y - anc.y) / adist * slip;
+            /* only call it dragging when she is actually losing ground */
+            if (slip > 0.0015) {
+              anc.dragging = Math.min(1, anc.dragging + dt * 0.4);
+              anc.set = Math.max(0, anc.set - dt * 0.25);
+            } else anc.dragging = Math.max(0, anc.dragging - dt * 0.3);
           } else {
             anc.dragging = Math.max(0, anc.dragging - dt * 0.5);
-            if (T > hold * 0.25) anc.set = Math.min(1, anc.set + dt * 0.05);
+            /* she digs herself in as she lies to the chain; going astern on
+               her sets the anchor properly, as you would in practice */
+            var digging = 0.035 + (this.engine.running && this.engine.gear < 0 ? 0.22 : 0);
+            if (T > 40 || T > hold * 0.1) anc.set = Math.min(1, anc.set + dt * digging);
           }
         } else {
           anc.tension = 0;

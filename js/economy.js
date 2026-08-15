@@ -94,14 +94,19 @@
     if (cd.pax) mass = Math.max(85, Math.round(cap / 85) * 85);
     var volume = mass / cd.dens;
 
+    /* passengers often want taking somewhere and bringing home again (§32) */
+    var round = cd.pax && rng() < 0.55;
     var urgent = rng() < 0.24;
     var planKn = 3.4 + rng() * 0.8;
     var slack = urgent ? 1.05 + rng() * 0.2 : 1.5 + rng() * 1.4;
     var dur = nm / planKn * 3600 * slack;
+    var ashore = round ? (1 + rng() * 2.5) * 3600 : 0;   // how long they want ashore
+    if (round) dur = dur * 2 + ashore;
     var deadline = E.t + Math.max(2400, dur);
 
     var rep = player ? player.reputation : 20;
     var reward = (26 + cd.rate * mass * (0.16 + 0.05 * nm)) * (urgent ? 1.55 : 1) * (0.86 + rep / 100 * 0.5);
+    if (round) reward *= 1.85;
     var gate = Ec.gate(destId);
     var risk = U.clamp((1.6 - gate) * 0.4 + (destId === 'kellan' ? 0.25 : 0) + (destId === 'stmarys' ? 0.2 : 0), 0, 1);
     reward *= 1 + risk * 0.35;
@@ -117,6 +122,7 @@
       earlyBonus: Math.round(reward * 0.09 / 5) * 5,
       repReward: Math.round((1.6 + nm * 0.16 + risk * 2.2 + (urgent ? 1.6 : 0)) * 10) / 10,
       risk: risk, urgent: urgent,
+      round: round, stage: 1, ashore: Math.round(ashore), homePort: origin.id,
       fridge: !!cd.cold, sensitive: cd.frag > 0.35 || cd.perish > 0.3,
       nm: nm
     };
@@ -150,6 +156,19 @@
   Ec.invalidate = function () { Ec._cache = null; };
 
   /* ---- settlement (§35) ---- */
+  /** the outward half of a return charter: they go ashore, you wait (§32) */
+  Ec.landPassengers = function (player, contract) {
+    contract.stage = 2;
+    contract.dest = contract.homePort;
+    contract.notBefore = E.t + contract.ashore;
+    contract.deadline = Math.max(contract.deadline, contract.notBefore + contract.nm / 3.2 * 3600);
+    var half = Math.round(contract.reward * 0.42);
+    contract.reward -= half;
+    player.money = Math.round((player.money + half) * 100) / 100;
+    player.stats.earned += half;
+    return { paid: half, back: contract.notBefore };
+  };
+
   Ec.deliver = function (player, vessel, contract, cargoItem) {
     var late = Math.max(0, E.t - contract.deadline) / 60;
     var pay = contract.reward, notes = [];

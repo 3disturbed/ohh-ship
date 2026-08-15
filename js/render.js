@@ -353,6 +353,30 @@
     ctx.restore();
   }
 
+  /* anchor, chain and the circle she can swing through */
+  function drawGroundTackle(v) {
+    var a = v.anchor;
+    if (!a.down) return;
+    var ax = sx(a.x), ay = sy(a.y), bx = sx(v.x), by = sy(v.y);
+    var rad = Math.sqrt(Math.max(0, a.veer * a.veer - a.depth * a.depth)) * R.cam.scale;
+    ctx.strokeStyle = a.dragging > 0.3 ? 'rgba(255,90,80,.5)' : 'rgba(120,235,255,.32)';
+    ctx.setLineDash([6, 6]); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(ax, ay, rad, 0, U.TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = a.tension > 10 ? 'rgba(230,240,245,.85)' : 'rgba(200,220,230,.45)';
+    ctx.lineWidth = Math.max(1.2, 2 * R.cam.scale * 3);
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ax, ay); ctx.stroke();
+    var s = Math.max(6, 12 * R.cam.scale * 2);
+    ctx.strokeStyle = a.dragging > 0.3 ? '#ff6a5a' : '#cfd8dc';
+    ctx.lineWidth = Math.max(1.4, s * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay - s * 0.8); ctx.lineTo(ax, ay + s * 0.7);
+    ctx.moveTo(ax - s * 0.45, ay - s * 0.4); ctx.lineTo(ax + s * 0.45, ay - s * 0.4);
+    ctx.moveTo(ax - s * 0.6, ay + s * 0.2);
+    ctx.quadraticCurveTo(ax, ay + s * 1.1, ax + s * 0.6, ay + s * 0.2);
+    ctx.stroke();
+  }
+
   function drawWake(v, t) {
     if (wake.length < 2) return;
     ctx.lineCap = 'round';
@@ -430,6 +454,19 @@
       ctx.moveTo(wpx, wpy - 15); ctx.lineTo(wpx, wpy + 15); ctx.stroke();
     }
 
+    /* your other boats, wherever they are (§37) */
+    if (opts.fleet) for (var fi = 0; fi < opts.fleet.length; fi++) {
+      var other = opts.fleet[fi];
+      if (other === v) continue;
+      var ox = sx(other.x), oy = sy(other.y);
+      if (ox < -60 || oy < -60 || ox > cw + 60 || oy > ch + 60) continue;
+      ctx.globalAlpha = 0.85; drawBoat(other, t); ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(240,248,252,.75)';
+      ctx.font = '10px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center';
+      ctx.fillText(other.spec.name, ox, oy + 34);
+    }
+
+    drawGroundTackle(v);
     drawWake(v, t);
     drawBoat(v, t);
 

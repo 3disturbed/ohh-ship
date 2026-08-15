@@ -19,7 +19,7 @@
   G.fleet = [];
   G.active = 0;
 
-  var acc = 0, envAcc = 0, instAcc = 0, secAcc = 0, wakeAcc = 0, lastT = 0, animT = 0;
+  var acc = 0, envAcc = 0, instAcc = 0, secAcc = 0, wakeAcc = 0, lastT = 0, animT = 0, bgTick = 0;
 
   /* ===================== new game / save ===================== */
   /* starting budgets (§35) — how much cash you begin with, on top of the boat */
@@ -115,17 +115,20 @@
     if (!raw) return false;
     try {
       var s = JSON.parse(raw);
-      if (s.version !== 2) return false;
+      if (s.version !== 3) return false;
       G.player = s.player;
       if (!G.player.stats) G.player.stats = { jobs: 0, lateJobs: 0, earned: 0, groundings: 0, tacks: 0 };
+      if (!isFinite(G.player.money)) G.player.money = 0;
       E.t = s.t;
-      var v = S.Vessel.load(s.vessel);
-      v.x = s.pos.x; v.y = s.pos.y; v.hdg = s.pos.hdg;
-      if (v.moored) v.mooredTo(v.mx || v.x, v.my || v.y);
-      v.sane();
-      v.dr = s.pos.dr || { x: v.x, y: v.y, err: 0 };
-      G.setVessel(v);
-      C.waypoint = s.waypoint || null;
+      G.fleet = (s.fleet || []).map(function (o) {
+        var vv = S.Vessel.load(o);
+        if (vv.moored) vv.mooredTo(vv.mx || vv.x, vv.my || vv.y);
+        vv.sane();
+        return vv;
+      });
+      if (!G.fleet.length) return false;
+      G.active = U.clamp(s.active | 0, 0, G.fleet.length - 1);
+      G.setActive(G.active, true);
       if (s.settings) G.settings = s.settings;
       if (s.atPort) UI.showPort(W.port(s.atPort), null);
       return true;
@@ -160,6 +163,21 @@
       var item = v.cargo[i];
       var c = G.player.contracts.filter(function (x) { return x.id === item.contract; })[0];
       if (!c || c.dest !== port.id) continue;
+      /* a return charter pays half here, and the passengers go ashore */
+      if (c.round && c.stage === 1) {
+        var land = Ec.landPassengers(G.player, c);
+        report.items.push({ name: D.CARGO[item.type].name + ' — landed ashore', pay: land.paid, rep: 0,
+          notes: ['They will be back aboard at ' + U.hhmm(land.back) +
+                  ', for the run home to ' + W.port(c.homePort).name] });
+        report.total += land.paid;
+        item.ashore = true;
+        continue;
+      }
+      if (c.round && c.stage === 2 && E.t < (c.notBefore || 0)) {
+        report.items.push({ name: D.CARGO[item.type].name, pay: 0, rep: 0,
+          notes: ['Your passengers are not due back aboard until ' + U.hhmm(c.notBefore)] });
+        continue;
+      }
       var res = Ec.deliver(G.player, v, c, item);
       report.items.push({ name: D.CARGO[item.type].name, pay: res.pay, rep: res.rep, notes: res.notes });
       report.total += res.pay;
@@ -192,6 +210,24 @@
     S.Edu.onEvent('moor', G.player, UI);
   };
 
+  /* ---------- ground tackle (§56) ---------- */
+  G.dropAnchor = function () {
+    var v = G.vessel, r = v.dropAnchor();
+    if (r === 'deep') UI.alert('Too deep to anchor — you carry ' + Math.round(v.chainTotal) + ' m of chain', 2800, 'warn');
+    else if (r === 'fast') UI.alert('Too much way on — stop her first', 2400, 'warn');
+    else if (r === 'ok') {
+      UI.toast('Anchor', 'Let go — ' + Math.round(v.anchor.veer) + ' m of chain veered');
+      Edu.unlock(G.player, 'anchoring', UI);
+      var sr = v.swingRoom();
+      if (sr && sr.clearance < 0.6) Edu.unlock(G.player, 'swinging', UI);
+    }
+    UI.renderAnchor();
+  };
+  G.weighAnchor = function () {
+    if (G.vessel.weighAnchor()) UI.toast('Anchor', 'Weighing — heaving in the chain');
+    UI.renderAnchor();
+  };
+
   G.cycleRate = function () {
     var i = RATES.indexOf(G.rate);
     G.rate = RATES[(i + 1) % RATES.length];
@@ -212,6 +248,7 @@
       if (driving) UI.persistentAlert('lines', 'LINES STILL ON — press “Slip lines”', 'warn');
       return;
     }
+    if (v.anchor.dragging > 0.5) UI.persistentAlert('drag', 'ANCHOR DRAGGING', '');
     if (v.grounded) {
       var ti = E.tideInfo(v.x, v.y);
       UI.persistentAlert('ground', 'AGROUND on ' + v.bottomType + ' — tide ' +
@@ -282,6 +319,23 @@
       }
     });
 
+    /* the boats you are not aboard still need watching (§37) */
+    for (var fi = 0; fi < G.fleet.length; fi++) {
+      var bv = G.fleet[fi];
+      if (bv === v) continue;
+      if (bv.grounded && !bv._toldAground) {
+        bv._toldAground = true;
+        UI.toast(bv.spec.name, 'She has gone aground while you were away');
+        G.player.stats.groundings++;
+      }
+      if (!bv.grounded) bv._toldAground = false;
+      if (bv._arrived) { bv._arrived = false; UI.toast(bv.spec.name, 'She has reached her waypoint'); }
+      if (bv.anchor.dragging > 0.6 && !bv._toldDrag) {
+        bv._toldDrag = true; UI.toast(bv.spec.name, 'Her anchor is dragging');
+      }
+      if (bv.anchor.dragging < 0.2) bv._toldDrag = false;
+    }
+
     /* gentle first-run guidance */
     if (G.settings.hints && !G.atPort) {
       if (hintStage === 0 && v.sailArea().total < 0.5 && !v.engine.running) {
@@ -344,13 +398,23 @@
       var steps = 0;
       while (acc >= PHYS_DT && steps < 90) {
         v.step(PHYS_DT);
+        /* the rest of the fleet keeps sailing while you are not aboard (§37) */
+        bgTick++;
+        if (bgTick % 2 === 0) {
+          for (var bi = 0; bi < G.fleet.length; bi++) {
+            var bv = G.fleet[bi];
+            if (bv === v || bv.moored) continue;
+            bv.pilotStep(PHYS_DT * 2);
+            bv.step(PHYS_DT * 2);
+          }
+        }
         E.advance(PHYS_DT);
         acc -= PHYS_DT; steps++;
       }
       if (acc > 1) acc = 0;
 
       envAcc += real * rate;
-      if (envAcc > 0.2) { v.envRefresh(); envAcc = 0; }
+      if (envAcc > 0.2) { G.fleet.forEach(function (b) { b.envRefresh(); }); envAcc = 0; }
 
       secAcc += real * rate;
       if (secAcc >= 1) { everySecond(v, secAcc); secAcc = 0; }
@@ -374,7 +438,7 @@
     }
 
     /* render */
-    R.frame(v, animT, { showStream: C.showStream, waypoint: C.waypoint });
+    R.frame(v, animT, { showStream: C.showStream, waypoint: v.waypoint, fleet: G.fleet });
     instAcc += real;
     if (instAcc > 0.1) {
       I.frame(v, G.player, UI.bearingToWp());

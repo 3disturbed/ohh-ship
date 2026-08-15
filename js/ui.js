@@ -21,7 +21,8 @@
      'tillerTrack','tillerKnob','chartView','chartCanvas','chartClose','chartFollow','chartTide',
      'chartMeasure','chartRoute','chartClear','chartInfo','chartReadout','portView','portName',
      'portSub','portClose','portTabs','portBody','bookView','bookClose','bookList','bookPage',
-     'bookSub','menuView','menuClose','menuBody','world','instruments'].forEach(function (id) { el[id] = $(id); });
+     'bookSub','menuView','menuClose','menuBody','world','instruments',
+     'btnAnchor','btnFleet','anchorPanel','fleetPanel'].forEach(function (id) { el[id] = $(id); });
 
     bindDeck();
     bindTiller();
@@ -31,6 +32,7 @@
     bindBook();
     bindKeys();
     bindWorldGestures();
+    bindAnchor();
   };
 
   /* ================= deck controls (§41, §42) ================= */
@@ -82,10 +84,12 @@
     on(el.btnPilot, 'click', function () {
       var b = v();
       if (!b.has('autopilot')) return;
-      b.autopilot.on = !b.autopilot.on;
-      if (b.autopilot.on) { b.autopilot.mode = 'hdg'; b.autopilot.target = b.hdg; }
+      if (b.autopilot.on) { b.autopilot.on = false; }
+      else if (b.waypoint) { b.autopilot.on = true; b.autopilot.mode = 'wpt'; }
+      else { b.autopilot.on = true; b.autopilot.mode = 'hdg'; b.autopilot.target = b.hdg; }
       el.btnPilot.classList.toggle('on', b.autopilot.on);
-      UI.toast('Autopilot', b.autopilot.on ? 'Holding ' + U.brgStr(b.hdg) : 'Off');
+      UI.toast('Autopilot', !b.autopilot.on ? 'Off'
+        : b.autopilot.mode === 'wpt' ? 'Steering for the waypoint' : 'Holding ' + U.brgStr(b.hdg));
     });
   }
 
@@ -125,7 +129,7 @@
       var id = I.hit(e.clientX - r.left, e.clientY - r.top);
       var page = id && I.PAGE[id];
       if (page && G.player.unlocked.indexOf(page) >= 0) { UI.bookSel = page; UI.showBook(true); }
-      else if (id === 'compass' && C.waypoint) UI.toast('Waypoint', 'Bearing ' + U.brgStr(bearingToWp()));
+      else if (id === 'compass' && C.wp()) UI.toast('Waypoint', 'Bearing ' + U.brgStr(bearingToWp()));
     });
   }
 
@@ -165,6 +169,8 @@
       else if (k === 't') el.btnTack.click();
       else if (k === 'f') G.fix();
       else if (k === 'l') { if (G.vessel.moored) G.slipLines(); else G.tryMoor(); }
+      else if (k === 'tab') { e.preventDefault(); G.nextVessel(); }
+      else if (k === 'q') UI.toggleAnchor();
       else if (k === ' ') { b.rudderCmd = 0; e.preventDefault(); }
       else if (k === '1' || k === '2' || k === '3') {
         b.engine.gear = k === '1' ? 1 : k === '2' ? 0 : -1;
@@ -207,11 +213,19 @@
     var kx = (v.rudder / 35) * 0.5 + 0.5;
     el.tillerKnob.style.marginLeft = (kx * (el.tillerTrack.clientWidth - 42) - el.tillerTrack.clientWidth / 2) + 'px';
 
+    /* ground tackle and fleet buttons */
+    el.btnAnchor.classList.toggle('on', v.anchor.down);
+    el.btnAnchor.classList.toggle('alarm', v.anchor.dragging > 0.4);
+    el.btnFleet.classList.toggle('hidden', G.fleet.length < 2);
+    if (!el.anchorPanel.classList.contains('hidden')) UI.renderAnchor();
+    if (!el.fleetPanel.classList.contains('hidden')) UI.renderFleet();
+
     /* cargo tag */
     if (v.cargo.length) {
       var lines = v.cargo.map(function (c) {
         var ct = player.contracts.filter(function (x) { return x.id === c.contract; })[0];
         var dest = ct ? W.port(ct.dest).name : '?';
+      if (ct && ct.round && ct.stage === 2) dest = 'home to ' + dest;
         var left = ct ? ct.deadline - E.t : 0;
         return '<b>' + D.CARGO[c.type].name + '</b> → ' + dest +
           (ct ? '  ' + (left < 0 ? 'LATE ' + U.durStr(-left) : U.durStr(left)) : '');
@@ -271,7 +285,9 @@
     });
     on(el.chartMeasure, 'click', function () { setChartMode(C.mode === 'measure' ? 'inspect' : 'measure'); });
     on(el.chartRoute, 'click', function () { setChartMode(C.mode === 'waypoint' ? 'inspect' : 'waypoint'); });
-    on(el.chartClear, 'click', function () { C.measure = []; C.waypoint = null; C.info = null; });
+    on(el.chartClear, 'click', function () {
+      C.measure = []; if (G.vessel) G.vessel.waypoint = null; C.info = null;
+    });
 
     var down = null, moved = 0, pts = {}, lastD = 0;
     on(el.chartCanvas, 'pointerdown', function (e) {
@@ -350,10 +366,10 @@
     var out = [];
     var mi = C.measureInfo();
     if (mi) out.push('<b>' + U.nmStr(mi.dist) + '</b>  ' + U.brgStr(mi.brg));
-    if (C.waypoint) {
+    if (v.waypoint) {
       var known = v.has('gps');
       var ox = known ? v.x : v.dr.x, oy = known ? v.y : v.dr.y;
-      var dx = C.waypoint.x - ox, dy = C.waypoint.y - oy;
+      var dx = v.waypoint.x - ox, dy = v.waypoint.y - oy;
       var d = U.len(dx, dy), brg = U.bearingOf(dx, dy);
       out.push('WPT ' + U.nmStr(d) + ' ' + U.brgStr(brg));
       if (v.sog > 0.2) {
@@ -366,9 +382,9 @@
   };
   function bearingToWp() {
     var v = G.vessel, known = v.has('gps');
-    if (!C.waypoint) return null;
+    if (!v.waypoint) return null;
     var ox = known ? v.x : v.dr.x, oy = known ? v.y : v.dr.y;
-    return U.bearingOf(C.waypoint.x - ox, C.waypoint.y - oy);
+    return U.bearingOf(v.waypoint.x - ox, v.waypoint.y - oy);
   }
   UI.bearingToWp = bearingToWp;
 
@@ -429,11 +445,21 @@
         'A / D or drag the tiller · SPACE centre helm<br>' +
         'W-S throttle slider · E engine · 1 / 2 / 3 ahead-neutral-astern<br>' +
         'M main · J jib · R reef · T tack · F fix position · L lines<br>' +
+        'Q ground tackle · TAB change vessel<br>' +
         'C chart · H handbook · scroll or pinch to zoom' +
       '</div></div>';
     $('mSave').onclick = function () { G.save(); UI.toast('Saved', 'Progress written to this device'); };
     $('mNew').onclick = function () {
-      if (confirm('Start again? This erases the current save.')) { G.newGame(); UI.showMenu(false); }
+      el.menuBody.innerHTML = '<div class="card"><h3>Start again</h3>' +
+        '<div class="meta">This erases the current save. How much are you starting with?</div></div>' +
+        G.STARTS.map(function (st) {
+          return '<div class="card"><h3>' + U.esc(st.name) + '<span class="fee">' + U.money(st.money) +
+            '</span></h3><div class="meta">' + U.esc(st.desc) + '</div>' +
+            '<div class="row"><button class="btn primary" data-start="' + st.id + '">Begin</button></div></div>';
+        }).join('');
+      Array.prototype.forEach.call(el.menuBody.querySelectorAll('[data-start]'), function (b) {
+        b.onclick = function () { G.newGame(b.dataset.start); UI.showMenu(false); };
+      });
     };
     Array.prototype.forEach.call(el.menuBody.querySelectorAll('[data-toggle]'), function (b) {
       b.onclick = function () {
@@ -540,6 +566,7 @@
       : win.never ? '<b style="color:#ef5b5b">you draw too much</b>'
       : 'opens <b>' + U.hhmm(win.open) + '</b>–' + U.hhmm(win.shut)) + '<br>';
     s += '<span class="tagline' + (c.urgent ? ' hot' : '') + '">' + (c.urgent ? 'urgent' : 'standard') + '</span>';
+    if (c.round) s += '<span class="tagline">return charter · ' + (c.ashore / 3600).toFixed(1) + ' h ashore</span>';
     if (c.fridge) s += '<span class="tagline' + (v.has('fridge') ? ' ok' : ' hot') + '">chilled</span>';
     if (c.sensitive) s += '<span class="tagline">condition matters</span>';
     if (c.risk > 0.35) s += '<span class="tagline hot">tricky entry</span>';
@@ -651,20 +678,45 @@
         '</div>';
     });
     if (port.yard) {
+      s += '<h2>Your fleet</h2>';
+      G.fleet.forEach(function (b, i) {
+        var here = b.moored && U.len(b.x - port.x, b.y - port.y) < port.r * 2.2;
+        var val = Ec.tradeIn(b);
+        s += '<div class="card tight"><h3>' + U.esc(b.spec.name) + (i === G.active ? ' — aboard' : '') +
+          '<span class="fee">' + U.money(val) + '</span></h3><div class="meta">' +
+          (here ? 'Alongside here' : b.moored ? 'Moored at ' + U.esc(W.nearestPort(b.x, b.y).port.name)
+                : b.anchor.down ? 'At anchor off ' + U.esc(W.nearestPort(b.x, b.y).port.name)
+                : 'At sea, ' + U.nmStr(U.len(b.x - port.x, b.y - port.y)) + ' away') +
+          ' · draft ' + b.draft().toFixed(2) + ' m · ' + b.cargo.length + ' in the hold' +
+          '</div><div class="row">' +
+          (i === G.active ? '' : '<button class="btn" data-board="' + i + '"' +
+              (here ? '' : ' disabled') + '>Go aboard</button>') +
+          (G.fleet.length > 1 && here && !b.cargo.length ?
+              '<button class="btn danger" data-sell="' + i + '">Sell for ' + U.money(val) + '</button>' : '') +
+          (b.cargo.length ? '<span class="meta">unload her before selling</span>' : '') +
+          '</div></div>';
+      });
+
       s += '<h2>Brokerage</h2>';
-      s += '<div class="card tight"><div class="meta">Trade-in value of <b>' + U.esc(v.spec.name) +
-        '</b>: ' + U.money(Ec.tradeIn(v)) + ' (equipment included)</div></div>';
       D.VESSELS.forEach(function (sp) {
-        if (sp.id === v.spec.id) return;
-        var cost = sp.price - Ec.tradeIn(v);
+        var owned = G.fleet.filter(function (b) { return b.spec.id === sp.id; }).length;
+        var afford = p.money >= sp.price;
+        var tin = Ec.tradeIn(v), swap = sp.price - tin;
         s += '<div class="card"><h3>' + U.esc(sp.name) + '<span class="fee">' + U.money(sp.price) + '</span></h3>' +
           '<div class="meta">' + U.esc(sp.blurb) + '<br>' +
-          sp.loa_m + ' m · draft ' + sp.base_draft_m + ' m · ' + sp.max_payload_kg + ' kg · ' +
-          sp.cargo_volume_m3 + ' m³ · ' + sp.fuel_capacity_l + ' L · ' + sp.engine_kw + ' kW · hull speed ' +
-          (1.34 * Math.sqrt(sp.lwl_m * U.FT)).toFixed(1) + ' kn</div>' +
-          '<div class="row"><button class="btn primary" data-vessel="' + sp.id + '"' +
-          (p.money >= cost ? '' : ' disabled') + '>' + (cost > 0 ? 'Buy for ' + U.money(cost) + ' more' : 'Trade down, take ' + U.money(-cost)) +
-          '</button></div></div>';
+          sp.loa_m.toFixed(2) + ' m · draft <b>' + sp.base_draft_m.toFixed(2) + ' m</b>' +
+          (sp.bilge ? ' (bilge keels — dries out upright)' : '') + ' · ' +
+          sp.max_payload_kg + ' kg · ' + sp.cargo_volume_m3 + ' m³ · ' +
+          sp.fuel_capacity_l + ' L · ' + sp.engine_kw + ' kW · hull speed ' +
+          (1.34 * Math.sqrt(sp.lwl_m * U.FT)).toFixed(1) + ' kn' +
+          (owned ? '<br><b>You own ' + owned + '</b>' : '') + '</div>' +
+          '<div class="row">' +
+          '<button class="btn primary" data-buy-v="' + sp.id + '"' + (afford ? '' : ' disabled') +
+            '>Buy outright ' + U.money(sp.price) + '</button>' +
+          (G.fleet.length === 1 && v.spec.id !== sp.id && !v.cargo.length ?
+            '<button class="btn" data-swap-v="' + sp.id + '"' + (p.money >= swap ? '' : ' disabled') +
+            '>Trade in ' + U.esc(v.spec.name) + (swap > 0 ? ' (+' + U.money(swap) + ')' : ' (get ' + U.money(-swap) + ')') + '</button>' : '') +
+          '</div></div>';
       });
     }
     return s;
@@ -713,7 +765,7 @@
     });
     q('[data-wp]', function (b) {
       var d = W.port(b.dataset.wp);
-      C.waypoint = { x: d.x, y: d.y };
+      G.vessel.waypoint = { x: d.x, y: d.y };
       UI.toast('Waypoint', 'Set on ' + d.name + ' — bearing shown on the compass');
     });
     q('[data-fuel]', function (b) {
@@ -740,21 +792,150 @@
       UI.toast('Fitted', e.name);
       UI.renderPort();
     });
-    q('[data-vessel]', function (b) {
-      var sp = D.vessel(b.dataset.vessel), cost = sp.price - Ec.tradeIn(v);
-      if (p.money < cost) return;
-      if (v.cargo.length) { UI.toast('Brokerage', 'Unload the hold before you change boats'); return; }
-      p.money -= cost;
+    q('[data-board]', function (b) {
+      var i = +b.dataset.board;
+      UI.hidePort(); G.atPort = null;
+      G.setActive(i);
+      var np = W.nearestPort(G.vessel.x, G.vessel.y);
+      if (G.vessel.moored && np.dist < np.port.r * 2.2) UI.showPort(np.port, null);
+      else UI.renderPort();
+    });
+    q('[data-sell]', function (b) {
+      var i = +b.dataset.sell, boat = G.fleet[i];
+      if (!boat || G.fleet.length < 2 || boat.cargo.length) return;
+      var val = Ec.tradeIn(boat);
+      p.money = Math.round((p.money + val) * 100) / 100;
+      G.fleet.splice(i, 1);
+      G.setActive(U.clamp(G.active > i ? G.active - 1 : Math.min(G.active, G.fleet.length - 1), 0, G.fleet.length - 1), true);
+      UI.toast('Brokerage', boat.spec.name + ' sold for ' + U.money(val));
+      UI.renderPort();
+    });
+    q('[data-buy-v]', function (b) {
+      var sp = D.vessel(b.dataset['buyV']);
+      if (!sp || p.money < sp.price) return;
+      p.money = Math.round((p.money - sp.price) * 100) / 100;
+      var nv = new S.Vessel(sp.id);
+      nv.hdg = v.hdg;
+      nv.mooredTo(port.x, port.y);
+      nv.dr.x = port.x; nv.dr.y = port.y;
+      nv.fuel = nv.fuelCapacity() * 0.2;
+      G.addVessel(nv);
+      UI.toast('Brokerage', sp.name + ' is yours — she is alongside');
+      UI.renderPort();
+    });
+    q('[data-swap-v]', function (b) {
+      var sp = D.vessel(b.dataset['swapV']), cost = sp.price - Ec.tradeIn(v);
+      if (!sp || p.money < cost || v.cargo.length) return;
+      p.money = Math.round((p.money - cost) * 100) / 100;
       var nv = new S.Vessel(sp.id);
       nv.equipment = v.equipment.slice();
+      nv.derive();
       nv.fuel = Math.min(v.fuel, nv.fuelCapacity());
-      nv.x = port.x; nv.y = port.y; nv.hdg = v.hdg;
+      nv.hdg = v.hdg;
+      nv.mooredTo(port.x, port.y);
       nv.dr.x = port.x; nv.dr.y = port.y;
-      G.setVessel(nv);
-      UI.toast('Brokerage', 'She is yours — ' + sp.name);
+      G.fleet[G.active] = nv;
+      G.setActive(G.active, true);
+      UI.toast('Brokerage', 'Traded in — she is yours, ' + sp.name);
       UI.renderPort();
     });
   }
+
+
+  /* ================= ground tackle & fleet panels ================= */
+  function bindAnchor() {
+    on(el.btnAnchor, 'click', function () { UI.toggleAnchor(); });
+    on(el.btnFleet, 'click', function () {
+      var open = el.fleetPanel.classList.contains('hidden');
+      el.fleetPanel.classList.toggle('hidden', !open);
+      el.anchorPanel.classList.add('hidden');
+      if (open) UI.renderFleet();
+    });
+  }
+  UI.toggleAnchor = function () {
+    var open = el.anchorPanel.classList.contains('hidden');
+    el.anchorPanel.classList.toggle('hidden', !open);
+    el.fleetPanel.classList.add('hidden');
+    if (open) UI.renderAnchor();
+  };
+
+  UI.renderAnchor = function () {
+    if (el.anchorPanel.classList.contains('hidden')) return;
+    var v = G.vessel, a = v.anchor;
+    var depth = W.getChartedDepth(v.x, v.y) + E.tideHeight(v.x, v.y);
+    var h = '<h4>Ground tackle<span class="meta">' + Math.round(v.chainTotal) + ' m chain</span></h4>';
+    if (v.moored) {
+      h += '<div class="verdict">She is alongside. Slip your lines first.</div>';
+    } else if (!a.down) {
+      var maxD = v.maxAnchorDepth();
+      h += '<div class="kv"><span>Depth here</span><span>' + depth.toFixed(1) + ' m</span>' +
+           '<span>Bottom</span><span>' + W.getBottom(v.x, v.y) + '</span>' +
+           '<span>Deepest you can anchor</span><span>' + maxD.toFixed(0) + ' m</span>' +
+           '<span>Speed</span><span>' + (v.sog * U.MS2KN).toFixed(1) + ' kn</span></div>';
+      h += depth > maxD ? '<div class="verdict bad">Too deep for the chain you carry.</div>'
+         : v.sog > 1.6 * U.KN ? '<div class="verdict warn">Take the way off her before you let go.</div>'
+         : '<div class="verdict good">Good holding ground, and room to swing.</div>';
+      h += '<div class="row"><button class="btn primary" id="ancDrop"' +
+           (depth > maxD || v.sog > 1.6 * U.KN ? ' disabled' : '') + '>Let go</button></div>';
+    } else {
+      var sr = v.swingRoom();
+      var scope = a.scope || 0;
+      h += '<div class="kv">' +
+        '<span>Chain veered</span><span>' + Math.round(a.veer) + ' / ' + Math.round(v.chainTotal) + ' m</span>' +
+        '<span>Depth to bow roller</span><span>' + a.depth.toFixed(1) + ' m</span>' +
+        '<span>Scope</span><span>' + scope.toFixed(1) + ' : 1</span>' +
+        '<span>Bottom</span><span>' + W.getBottom(a.x, a.y) + '</span>' +
+        '<span>Swinging radius</span><span>' + Math.round(sr.radius) + ' m</span>' +
+        '<span>Low water ' + U.hhmm(sr.lwTime) + '</span><span>' + sr.lowWater.toFixed(1) + ' m</span>' +
+        '<span>Shallowest in the circle</span><span>' + sr.shallowest.toFixed(1) + ' m</span>' +
+        '</div>';
+      h += scope < 3 ? '<div class="verdict bad">Scope too short — she will drag. Veer more chain.</div>'
+         : scope < 4.5 ? '<div class="verdict warn">Fair weather scope only.</div>'
+         : '<div class="verdict good">Good scope. She should hold.</div>';
+      if (sr.clearance < 0) h += '<div class="verdict bad">She will take the ground at low water — ' +
+        Math.abs(sr.clearance).toFixed(1) + ' m short.</div>';
+      else if (sr.clearance < 0.6) h += '<div class="verdict warn">Only ' + sr.clearance.toFixed(1) +
+        ' m under the keel at low water.</div>';
+      if (a.dragging > 0.3) h += '<div class="verdict bad">DRAGGING</div>';
+      else if (a.set > 0.7) h += '<div class="verdict good">Well dug in.</div>';
+      if (a.weighing > 0) h += '<div class="verdict">Weighing — ' + Math.ceil(a.weighing) + ' s</div>';
+      h += '<div class="row">' +
+        '<button class="btn" id="ancVeer">Veer 5 m</button>' +
+        '<button class="btn" id="ancShort">Shorten 5 m</button>' +
+        '<button class="btn primary" id="ancUp">Weigh</button></div>';
+    }
+    el.anchorPanel.innerHTML = h;
+    var b;
+    if ((b = document.getElementById('ancDrop'))) b.onclick = function () { G.dropAnchor(); };
+    if ((b = document.getElementById('ancUp'))) b.onclick = function () { G.weighAnchor(); };
+    if ((b = document.getElementById('ancVeer'))) b.onclick = function () { G.vessel.veerChain(5); UI.renderAnchor(); };
+    if ((b = document.getElementById('ancShort'))) b.onclick = function () { G.vessel.veerChain(-5); UI.renderAnchor(); };
+  };
+
+  UI.renderFleet = function () {
+    var h = '<h4>Your fleet<span class="meta">TAB to change</span></h4>';
+    G.fleet.forEach(function (b, i) {
+      var where = b.moored ? 'alongside ' + W.nearestPort(b.x, b.y).port.name
+        : b.anchor.down ? 'at anchor'
+        : (b.sog * U.MS2KN).toFixed(1) + ' kn ' + U.brgStr(b.cog);
+      h += '<div class="fleet-row"><div><b>' + U.esc(b.spec.name) + '</b>' +
+        (i === G.active ? ' <span class="tagline ok">aboard</span>' : '') +
+        '<div class="meta">' + U.esc(where) + (b.cargo.length ? ' · ' + b.cargo.length + ' aboard' : '') +
+        (b.grounded ? ' · <b style="color:#ef5b5b">AGROUND</b>' : '') + '</div></div>' +
+        (i === G.active ? '' : '<button class="btn" data-go="' + i + '">Board</button>') + '</div>';
+    });
+    if (G.fleet.length < 2) h += '<div class="meta" style="margin-top:6px">Buy a second boat at the Westhaven yard and you can run two contracts at once.</div>';
+    el.fleetPanel.innerHTML = h;
+    Array.prototype.forEach.call(el.fleetPanel.querySelectorAll('[data-go]'), function (btn) {
+      btn.onclick = function () {
+        if (!G.canLeave(G.vessel)) {
+          UI.alert('You cannot walk away from her — moor, anchor, or set the autopilot', 3000, 'warn');
+          return;
+        }
+        G.setActive(+btn.dataset.go); UI.renderFleet();
+      };
+    });
+  };
 
   UI.setMoor = function (show, text, mode) {
     el.btnMoor.classList.toggle('hidden', !show);

@@ -1,4 +1,20 @@
-# Working Title: Sailing Courier Simulator
+# Ohh Ship! — Sailing Courier Simulator
+
+**▶ Play in your browser: https://3disturbed.github.io/ohh-ship/**
+
+A top-down sailing, navigation and coastal-courier simulator that runs entirely
+in the browser. No build step, no dependencies — plain HTML, CSS and JavaScript.
+
+Wind, tide, depth, draft, hull speed, cargo weight, fuel, sail trim, ground
+tackle and navigation all decide whether a job is profitable, late, dangerous
+or impossible. The design document that the game was built from follows.
+
+**Controls** — drag the tiller or `A`/`D` · `SPACE` centre helm · `W`/`S` throttle ·
+`E` engine · `1`/`2`/`3` ahead-neutral-astern · `M` main · `J` jib · `R` reef ·
+`T` tack · `F` fix position · `L` lines · `Q` ground tackle · `TAB` change vessel ·
+`C` chart · `H` handbook
+
+---
 
 A top-down mobile sailing simulator where players start with a small working boat and build a coastal trade and courier business while learning real sailing theory through play.
 

@@ -15,7 +15,7 @@
   C.follow = true;
   C.showStream = false;
   C.measure = [];
-  C.waypoint = null;
+  C.wp = function () { var v = S.Game && S.Game.vessel; return v ? v.waypoint : null; };
   C.info = null;
 
   var PAPER = '#f3ead6';
@@ -304,9 +304,34 @@
       }
     }
 
+    /* ground tackle and the swinging circle */
+    var anc = v.anchor;
+    if (anc.down) {
+      var ax = sx(anc.x), ay = sy(anc.y);
+      var rr = Math.sqrt(Math.max(0, anc.veer * anc.veer - anc.depth * anc.depth)) * C.cam.scale;
+      ctx.strokeStyle = 'rgba(40,90,140,.8)'; ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.arc(ax, ay, Math.max(3, rr), 0, U.TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#1a3f8c';
+      ctx.beginPath(); ctx.arc(ax, ay, 3, 0, U.TAU); ctx.fill();
+    }
+    /* the rest of the fleet */
+    if (S.Game && S.Game.fleet) S.Game.fleet.forEach(function (b) {
+      if (b === v) return;
+      var fx = sx(b.x), fy = sy(b.y);
+      ctx.save(); ctx.translate(fx, fy); ctx.rotate(b.hdg);
+      ctx.fillStyle = '#7a5a1a';
+      ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(4, 6); ctx.lineTo(0, 4); ctx.lineTo(-4, 6);
+      ctx.closePath(); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#5c4412'; ctx.font = '9px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center';
+      ctx.fillText(b.spec.name, fx, fy + 16);
+    });
+
     /* waypoint and the leg to it */
-    if (C.waypoint) {
-      var wx = sx(C.waypoint.x), wy = sy(C.waypoint.y);
+    var wpt = C.wp();
+    if (wpt) {
+      var wx = sx(wpt.x), wy = sy(wpt.y);
       ctx.strokeStyle = '#8e2f8e'; ctx.lineWidth = 1.6;
       ctx.beginPath(); ctx.arc(wx, wy, 7, 0, U.TAU); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(wx - 11, wy); ctx.lineTo(wx + 11, wy);
@@ -336,7 +361,10 @@
   /* ---------- interaction (§44) ---------- */
   C.tap = function (px, py, v) {
     var w = C.toWorld(px, py);
-    if (C.mode === 'waypoint') { C.waypoint = { x: w.x, y: w.y }; C.info = null; return; }
+    if (C.mode === 'waypoint') {
+      if (S.Game.vessel) S.Game.vessel.waypoint = { x: w.x, y: w.y };
+      C.info = null; return;
+    }
     if (C.mode === 'measure') {
       if (C.measure.length >= 2) C.measure = [];
       C.measure.push(w);
