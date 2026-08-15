@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b1d26">
+<title>Ohh Ship! — Sailing Courier Simulator</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ WORLD VIEW ============ -->
+  <div id="worldWrap">
+    <canvas id="world"></canvas>
+
+    <div id="topbar">
+      <div class="tb-group">
+        <span id="tbClock" class="tb-clock">Day 1 06:00</span>
+        <span id="tbMoney" class="tb-money">£0</span>
+      </div>
+      <div class="tb-group tb-mid">
+        <span id="tbWind" class="tb-chip">—</span>
+        <span id="tbTide" class="tb-chip">—</span>
+      </div>
+      <div class="tb-group">
+        <button id="btnRate" class="tb-btn" title="Time acceleration">1&times;</button>
+        <button id="btnChart" class="tb-btn">Chart</button>
+        <button id="btnBook" class="tb-btn">Book</button>
+        <button id="btnMenu" class="tb-btn">&#9776;</button>
+      </div>
+    </div>
+
+    <div id="alerts"></div>
+    <div id="toasts"></div>
+
+    <button id="btnMoor" class="moor-btn hidden">Moor alongside</button>
+    <div class="side-btns">
+      <button id="btnAnchor" class="round-btn" title="Ground tackle">&#9784;</button>
+      <button id="btnFleet" class="round-btn hidden" title="Change vessel (Tab)">&#9973;</button>
+    </div>
+    <div id="anchorPanel" class="float-panel hidden"></div>
+    <div id="fleetPanel" class="float-panel hidden"></div>
+    <div id="cargoTag" class="cargo-tag hidden"></div>
+  </div>
+
+  <!-- ============ INSTRUMENT CLUSTER ============ -->
+  <canvas id="instruments"></canvas>
+
+  <!-- ============ CONTROL DECK ============ -->
+  <div id="deck">
+
+    <div class="deck-col deck-sails">
+      <div class="deck-label">Main <span id="lblMain" class="val">—</span></div>
+      <div class="sheet-row">
+        <div class="vsl-wrap"><input id="sheetMain" class="vsl" type="range" min="0" max="85" step="1" value="80"></div>
+        <div class="sheet-btns">
+          <button id="btnHoist" class="mini">Hoist</button>
+          <button id="btnReef" class="mini">Reef 0</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="deck-col deck-sails">
+      <div class="deck-label">Jib <span id="lblJib" class="val">—</span></div>
+      <div class="sheet-row">
+        <div class="vsl-wrap"><input id="sheetJib" class="vsl" type="range" min="0" max="85" step="1" value="80"></div>
+        <div class="sheet-btns">
+          <button id="btnFurl" class="mini">Unfurl</button>
+          <button id="btnTack" class="mini">Tack</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="deck-col deck-engine">
+      <div class="deck-label">Engine <span id="lblRpm" class="val">off</span></div>
+      <div class="sheet-row">
+        <div class="vsl-wrap"><input id="throttle" class="vsl" type="range" min="0" max="100" step="1" value="0"></div>
+        <div class="sheet-btns">
+          <button id="btnStart" class="mini">Start</button>
+          <div class="gearbox">
+            <button data-gear="1" class="mini gear">A</button>
+            <button data-gear="0" class="mini gear on">N</button>
+            <button data-gear="-1" class="mini gear">R</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="deck-col deck-helm">
+      <div class="deck-label">Helm <span id="lblHelm" class="val">0&deg;</span>
+        <button id="btnPilot" class="mini pilot hidden">AP</button>
+      </div>
+      <div class="tiller-track" id="tillerTrack">
+        <div class="tiller-centre"></div>
+        <div class="tiller-knob" id="tillerKnob"></div>
+      </div>
+      <div class="helm-hint">drag &middot; A / D keys &middot; tap centre to straighten</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ CHART ============ -->
+<div id="chartView" class="overlay hidden">
+  <canvas id="chartCanvas"></canvas>
+  <div class="chart-bar">
+    <button id="chartClose" class="tb-btn">&times; Close</button>
+    <button id="chartFollow" class="tb-btn on">Follow</button>
+    <button id="chartTide" class="tb-btn">Tidal streams</button>
+    <button id="chartMeasure" class="tb-btn">Measure</button>
+    <button id="chartRoute" class="tb-btn">Waypoints</button>
+    <button id="chartClear" class="tb-btn">Clear</button>
+  </div>
+  <div id="chartInfo" class="chart-info"></div>
+  <div id="chartReadout" class="chart-readout"></div>
+</div>
+
+<!-- ============ PORT ============ -->
+<div id="portView" class="overlay hidden">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div>
+        <h1 id="portName">Port</h1>
+        <div id="portSub" class="sub"></div>
+      </div>
+      <button id="portClose" class="tb-btn">Cast off &rarr;</button>
+    </div>
+    <div class="tabs" id="portTabs">
+      <button data-tab="jobs" class="tab on">Contracts</button>
+      <button data-tab="hold" class="tab">Hold</button>
+      <button data-tab="ship" class="tab">Vessel</button>
+      <button data-tab="yard" class="tab">Boatyard</button>
+    </div>
+    <div class="tabbody" id="portBody"></div>
+  </div>
+</div>
+
+<!-- ============ HANDBOOK ============ -->
+<div id="bookView" class="overlay hidden">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div><h1>Skipper's Handbook</h1><div class="sub" id="bookSub"></div></div>
+      <button id="bookClose" class="tb-btn">&times; Close</button>
+    </div>
+    <div class="book-wrap">
+      <div class="book-list" id="bookList"></div>
+      <div class="book-page" id="bookPage"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MENU ============ -->
+<div id="menuView" class="overlay hidden">
+  <div class="sheet narrow">
+    <div class="sheet-head"><h1>Ohh Ship!</h1><button id="menuClose" class="tb-btn">&times;</button></div>
+    <div class="tabbody" id="menuBody"></div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/data.js"></script>
+<script src="js/world.js"></script>
+<script src="js/environment.js"></script>
+<script src="js/vessel.js"></script>
+<script src="js/economy.js"></script>
+<script src="js/education.js"></script>
+<script src="js/render.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/instruments.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
