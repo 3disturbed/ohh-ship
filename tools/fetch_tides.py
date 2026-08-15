@@ -115,6 +115,9 @@ def main():
         la = s['lat']; lo = s['long']
         print('%2d/%d %-24s' % (i + 1, len(seen), lab), end=' ', flush=True)
         r = fit(lab, note, la, lo)
+        # a gauge that reports a constant, or barely moves, is broken not tideless
+        if r and (r['con']['M2'][0] < 0.05 or r['z0'] < 0.15):
+            print('degenerate fit, dropped', flush=True); r = None
         if r:
             out.append(r)
             print('M2 %.2f m  phase %5.1f  Z0 %.2f  rms %.3f  n=%d'
