@@ -10,7 +10,7 @@
   var base = null;                     // pre-rendered static chart
   var BASE_PPM = 0.1;                  // 10 metres per pixel on the base image
 
-  C.cam = { x: 8000, y: 6000, scale: 0.06 };
+  C.cam = { x: 0, y: 900000, scale: 0.0009 };
   C.mode = 'inspect';                  // inspect | measure | waypoint
   C.follow = true;
   C.showStream = false;
@@ -35,7 +35,6 @@
 
   C.init = function (canvas) {
     cv = canvas; ctx = cv.getContext('2d');
-    C.buildBase();
     C.resize();
   };
 
@@ -46,75 +45,78 @@
     cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
   };
 
-  /* ---------- static layers, rendered once ---------- */
-  C.buildBase = function () {
-    var bw = Math.round(W.WIDTH * BASE_PPM), bh = Math.round(W.HEIGHT * BASE_PPM);
-    base = document.createElement('canvas');
-    base.width = bw; base.height = bh;
-    var b = base.getContext('2d');
-
-    /* soft depth bands from the grid */
-    var small = document.createElement('canvas');
-    small.width = W.NX; small.height = W.NY;
-    var sctx = small.getContext('2d');
-    var img = sctx.createImageData(W.NX, W.NY), d = W.depthArray(), px = img.data;
-    for (var i = 0; i < d.length; i++) {
-      var c = bandColour(d[i]);
-      px[i * 4] = c[0]; px[i * 4 + 1] = c[1]; px[i * 4 + 2] = c[2]; px[i * 4 + 3] = 255;
+  /* ---------- base layers ----------
+     There is no pre-rendered base any more: the chart is drawn from the same
+     rasters the depths come from, so it works at any scale from the whole
+     country down to a harbour entrance. */
+  /* Chart convention: deep water is white paper, the shallows step through
+     blue, what dries is green, and the land above high water is buff. */
+  function bandColour(d, z0) {
+    if (d < -z0) {
+      var h = U.clamp((-d - z0) / 120, 0, 1);
+      return [232 - h * 34, 219 - h * 40, 182 - h * 44];
     }
-    sctx.putImageData(img, 0, 0);
-    b.imageSmoothingEnabled = true;
-    b.drawImage(small, 0, 0, bw, bh);
+    if (d < 0) return [201, 222, 191];
+    if (d >= 20) return [243, 240, 230];
+    if (d >= 10) return [226, 235, 234];
+    if (d >= 5) return [201, 225, 235];
+    if (d >= 2) return [163, 206, 227];
+    return [130, 186, 214];
+  }
+  var baseCv = null, baseKey = '';
+  function buildBase() {
+    var px = Math.min(1100, Math.max(360, Math.round(cw)));
+    var py = Math.round(px * ch / cw);
+    var key = [Math.round(C.cam.x), Math.round(C.cam.y),
+               C.cam.scale.toFixed(5), px, py].join(',');
+    if (baseKey === key && baseCv) return;
+    if (!baseCv) baseCv = document.createElement('canvas');
+    baseCv.width = px; baseCv.height = py;
+    var x = baseCv.getContext('2d');
+    var img = x.createImageData(px, py), o = img.data;
+    var wpx = cw / C.cam.scale / px, wpy = ch / C.cam.scale / py;
+    var gz = S.Geo.unproject(C.cam.x, C.cam.y);
+    var z0 = W.chartDatumOffset(gz.lon, gz.lat);
+    var x0 = C.cam.x - cw / 2 / C.cam.scale, y0 = C.cam.y - ch / 2 / C.cam.scale;
+    for (var j = 0; j < py; j++) {
+      var wy = y0 + (j + 0.5) * wpy;
+      for (var i = 0; i < px; i++) {
+        var c = bandColour(W.getChartedDepth(x0 + (i + 0.5) * wpx, wy), z0);
+        var k = (j * px + i) * 4;
+        o[k] = c[0]; o[k + 1] = c[1]; o[k + 2] = c[2]; o[k + 3] = 255;
+      }
+    }
+    x.putImageData(img, 0, 0);
+    baseKey = key;
+  }
+  C.buildBase = function () { baseKey = ''; };
 
-    function tx(x) { return x * BASE_PPM; }
-
-    /* depth contours */
-    var levels = [{ l: 0, c: '#5f8a53', w: 1.4 }, { l: 2, c: '#4a7f9c', w: 1.1 },
-                  { l: 5, c: '#6b9ab2', w: 1.0 }, { l: 10, c: '#8fb3c4', w: 0.9 },
-                  { l: 20, c: '#a8bfc9', w: 0.9 }];
+  function drawContours() {
+    var g0 = C.toWorld(0, 0), g1 = C.toWorld(cw, ch);
+    var a0 = S.Geo.unproject(g0.x, g0.y), a1 = S.Geo.unproject(g1.x, g1.y);
+    var lon0 = Math.min(a0.lon, a1.lon) - 0.02, lon1 = Math.max(a0.lon, a1.lon) + 0.02;
+    var lat0 = Math.min(a0.lat, a1.lat) - 0.02, lat1 = Math.max(a0.lat, a1.lat) + 0.02;
+    var r = W.rasterAt((lon0 + lon1) / 2, (lat0 + lat1) / 2);
+    if (!r) return;
+    var z0 = W.chartDatumOffset((lon0 + lon1) / 2, (lat0 + lat1) / 2);
+    var span = Math.max(lon1 - lon0, lat1 - lat0);
+    var stride = Math.max(1, Math.round(span * 111320 / r.cell / 700));
+    var levels = span > 1.2 ? [{ l: 0, c: '#5f8a53', w: 1.3 }]
+      : [{ l: 0, c: '#5f8a53', w: 1.3 }, { l: 2, c: '#4a7f9c', w: 1.0 },
+         { l: 5, c: '#6b9ab2', w: 0.9 }, { l: 10, c: '#8fb3c4', w: 0.8 },
+         { l: 20, c: '#a8bfc9', w: 0.8 }];
     levels.forEach(function (lv) {
-      var segs = W.contours[lv.l];
-      if (!segs) return;
-      b.strokeStyle = lv.c; b.lineWidth = lv.w;
-      b.beginPath();
+      var segs = W.contour(r, lv.l + z0, lon0, lat0, lon1, lat1, stride);
+      if (!segs.length) return;
+      ctx.strokeStyle = lv.c; ctx.lineWidth = lv.w;
+      ctx.beginPath();
       for (var k = 0; k < segs.length; k += 4) {
-        b.moveTo(tx(segs[k]), tx(segs[k + 1]));
-        b.lineTo(tx(segs[k + 2]), tx(segs[k + 3]));
+        ctx.moveTo(sx(segs[k]), sy(segs[k + 1]));
+        ctx.lineTo(sx(segs[k + 2]), sy(segs[k + 3]));
       }
-      b.stroke();
+      ctx.stroke();
     });
-
-    /* drying areas: green stipple between the 0 m contour and the coast */
-    b.fillStyle = 'rgba(96,142,84,.35)';
-    for (var gy = 0; gy < W.NY; gy += 1) {
-      for (var gx = 0; gx < W.NX; gx += 1) {
-        var dd = d[gy * W.NX + gx];
-        if (dd < 0 && dd > -2.2 && ((gx + gy) % 2 === 0)) {
-          b.fillRect(tx(gx * W.CELL) - 1, tx(gy * W.CELL) - 1, 1.6, 1.6);
-        }
-      }
-    }
-
-    /* land */
-    b.lineJoin = 'round';
-    for (var p = 0; p < W.LAND.length; p++) {
-      var pts = W.LAND[p].pts;
-      b.beginPath(); b.moveTo(tx(pts[0][0]), tx(pts[0][1]));
-      for (var q = 1; q < pts.length; q++) b.lineTo(tx(pts[q][0]), tx(pts[q][1]));
-      b.closePath();
-      b.fillStyle = '#e6d9b8'; b.fill();
-      b.strokeStyle = '#7d6a44'; b.lineWidth = 1.6; b.stroke();
-    }
-    /* land hatching */
-    b.save(); b.globalAlpha = 0.16; b.strokeStyle = '#8a744a'; b.lineWidth = 0.7;
-    for (var hgy = 0; hgy < W.NY; hgy++) for (var hgx = 0; hgx < W.NX; hgx++) {
-      if (d[hgy * W.NX + hgx] < -1.6 && (hgx * 7 + hgy * 3) % 11 === 0) {
-        var lx = tx(hgx * W.CELL), ly = tx(hgy * W.CELL);
-        b.beginPath(); b.moveTo(lx - 3, ly + 3); b.lineTo(lx + 3, ly - 3); b.stroke();
-      }
-    }
-    b.restore();
-  };
+  }
 
   /* ---------- transforms ---------- */
   function sx(x) { return (x - C.cam.x) * C.cam.scale + cw / 2; }
@@ -135,10 +137,9 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (var j = 0; j <= ny; j++) for (var i = 0; i <= nx; i++) {
       var wx = x0 + i * spacing, wy = y0 + j * spacing;
-      if (wx < 0 || wy < 0 || wx > W.WIDTH || wy > W.HEIGHT) continue;
-      if (W.isLand(wx, wy)) continue;
+      
       var d = W.getChartedDepth(wx, wy);
-      if (d < -3.5) continue;
+      if (d < -3.0 || d > 300) continue;
       var px = sx(wx), py = sy(wy);
       if (d >= 0) {
         ctx.fillStyle = d < 10 ? '#2e4a5c' : '#7793a3';
@@ -156,26 +157,32 @@
   var MARKCOL = { port: '#c0392b', stbd: '#1e7f45', safe: '#c0392b', danger: '#1a1a1a',
                   north: '#1a1a1a', south: '#1a1a1a', east: '#1a1a1a', west: '#1a1a1a',
                   light: '#8e44ad', tower: '#6b4a1f' };
+  var buf = [];
   function drawMarks() {
-    var showLabels = C.cam.scale > 0.035;
+    var showLabels = C.cam.scale > 0.05;
     ctx.font = '9px ui-monospace,Menlo,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    for (var i = 0; i < W.MARKS.length; i++) {
-      var m = W.MARKS[i], px = sx(m.x), py = sy(m.y);
+    var g0 = C.toWorld(0, 0), g1 = C.toWorld(cw, ch);
+    W.marksIn(g0.x, g0.y, g1.x, g1.y, buf);
+    if (buf.length > 900) buf.length = 900;
+    for (var i = 0; i < buf.length; i++) {
+      var m = buf[i], px = sx(m.x), py = sy(m.y);
       if (px < -20 || py < -20 || px > cw + 20 || py > ch + 20) continue;
-      ctx.fillStyle = MARKCOL[m.t] || '#333';
+      var kind = m.t;
+      ctx.fillStyle = kind === 'L' || kind === 'l' ? (m.cat === 'p' ? '#c0392b' : '#1e7f45')
+                    : kind === 'M' || kind === 'm' ? '#8e44ad' : '#1a1a1a';
       ctx.strokeStyle = '#222'; ctx.lineWidth = 0.7;
-      if (m.t === 'light' || m.t === 'tower') {
+      if (kind === 'M' || kind === 'm' || kind === 'V' || kind === 'K') {
         ctx.beginPath(); ctx.arc(px, py, 2.6, 0, U.TAU); ctx.fill();
         /* light flare */
         ctx.strokeStyle = '#8e44ad'; ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 9, py - 9);
         ctx.arc(px, py, 12.7, -Math.PI / 4 - 0.35, -Math.PI / 4 + 0.35); ctx.closePath(); ctx.stroke();
-      } else if (m.t === 'port') {
+      } else if ((kind === 'L' || kind === 'l') && m.cat === 'p') {
         ctx.fillRect(px - 2.4, py - 4.5, 4.8, 9); ctx.strokeRect(px - 2.4, py - 4.5, 4.8, 9);
-      } else if (m.t === 'stbd') {
+      } else if ((kind === 'L' || kind === 'l') && m.cat === 's') {
         ctx.beginPath(); ctx.moveTo(px, py - 5); ctx.lineTo(px + 3, py + 4); ctx.lineTo(px - 3, py + 4);
         ctx.closePath(); ctx.fill(); ctx.stroke();
-      } else if (m.t === 'safe') {
+      } else if (kind === 'W' || kind === 'w') {
         ctx.beginPath(); ctx.arc(px, py, 3.2, 0, U.TAU); ctx.fill();
       } else {
         ctx.beginPath(); ctx.moveTo(px, py - 5.5); ctx.lineTo(px + 3.4, py + 3); ctx.lineTo(px - 3.4, py + 3);
@@ -185,26 +192,37 @@
       }
       if (showLabels) {
         ctx.fillStyle = '#33506080';
-        ctx.fillText(m.n + (m.lt ? ' ' + m.lt : ''), px + 6, py - 5);
+        if (m.n) ctx.fillText(m.n + (m.lt ? ' ' + m.lt : ''), px + 6, py - 5);
       }
     }
     /* harbours */
-    for (var p = 0; p < W.PORTS.length; p++) {
-      var pt = W.PORTS[p], qx = sx(pt.x), qy = sy(pt.y);
+    var pv = W.portsWithin(C.cam.x, C.cam.y, Math.max(cw, ch) / C.cam.scale);
+    var shown = [];
+    for (var p = 0; p < pv.length; p++) {
+      var pt = pv[p], qx = sx(pt.x), qy = sy(pt.y);
+      if (qx < -40 || qy < -40 || qx > cw + 40 || qy > ch + 40) continue;
       ctx.fillStyle = '#8e2f8e';
       ctx.beginPath(); ctx.arc(qx, qy, 4, 0, U.TAU); ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
-      ctx.fillStyle = '#2b1a3a'; ctx.font = 'bold 11px ui-rounded,system-ui,sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(pt.name, qx, qy - 9);
+      var clash = false;
+      for (var q2 = 0; q2 < shown.length; q2++)
+        if (Math.abs(shown[q2][0] - qx) < 76 && Math.abs(shown[q2][1] - qy) < 13) { clash = true; break; }
+      if (!clash) {
+        shown.push([qx, qy]);
+        ctx.fillStyle = '#2b1a3a'; ctx.font = 'bold 11px ui-rounded,system-ui,sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(pt.name, qx, qy - 9);
+      }
       ctx.textAlign = 'left'; ctx.font = '9px ui-monospace,Menlo,monospace';
     }
   }
 
   function drawStream() {
     var step = U.clamp(52 / C.cam.scale, 400, 3000);
-    for (var wy = step / 2; wy < W.HEIGHT; wy += step) {
-      for (var wx = step / 2; wx < W.WIDTH; wx += step) {
+    var gx0 = C.cam.x - cw / 2 / C.cam.scale, gy0 = C.cam.y - ch / 2 / C.cam.scale;
+    var gx1 = C.cam.x + cw / 2 / C.cam.scale, gy1 = C.cam.y + ch / 2 / C.cam.scale;
+    for (var wy = Math.floor(gy0 / step) * step; wy < gy1; wy += step) {
+      for (var wx = Math.floor(gx0 / step) * step; wx < gx1; wx += step) {
         var px = sx(wx), py = sy(wy);
         if (px < -20 || py < -20 || px > cw + 20 || py > ch + 20) continue;
         var c = E.current(wx, wy), sp = U.len(c.x, c.y);
@@ -268,10 +286,10 @@
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = PAPER; ctx.fillRect(0, 0, cw, ch);
-
-    var sc = C.cam.scale / BASE_PPM;
-    ctx.imageSmoothingEnabled = C.cam.scale < 0.12;
-    ctx.drawImage(base, sx(0), sy(0), base.width * sc, base.height * sc);
+    buildBase();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(baseCv, 0, 0, cw, ch);
+    drawContours();
 
     drawSoundings();
     if (C.showStream) drawStream();
@@ -390,14 +408,14 @@
   C.centreOn = function (x, y) { C.cam.x = x; C.cam.y = y; };
   C.zoom = function (mult, cx, cy) {
     var before = C.toWorld(cx, cy);
-    C.cam.scale = U.clamp(C.cam.scale * mult, 0.012, 0.42);
+    C.cam.scale = U.clamp(C.cam.scale * mult, 0.00035, 0.5);
     var after = C.toWorld(cx, cy);
     C.cam.x += before.x - after.x; C.cam.y += before.y - after.y;
-    C.cam.x = U.clamp(C.cam.x, 0, W.WIDTH); C.cam.y = U.clamp(C.cam.y, 0, W.HEIGHT);
+
   };
   C.pan = function (dx, dy) {
-    C.cam.x = U.clamp(C.cam.x - dx / C.cam.scale, -1000, W.WIDTH + 1000);
-    C.cam.y = U.clamp(C.cam.y - dy / C.cam.scale, -1000, W.HEIGHT + 1000);
+    C.cam.x -= dx / C.cam.scale;
+    C.cam.y -= dy / C.cam.scale;
   };
 
 })(window.SCS);

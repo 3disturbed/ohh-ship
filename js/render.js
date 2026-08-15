@@ -7,24 +7,15 @@
   var R = S.Render = {};
 
   var cv, ctx, dpr = 1, cw = 0, ch = 0;
-  var depthCv = null, depthCtx = null, depthTide = -99;
+  var depthTide = -99;
   var wake = [];
+  var markBuf = [];
 
-  R.cam = { x: 2500, y: 2760, scale: 0.30, minScale: 0.10, maxScale: 1.6 };
+  R.cam = { x: 0, y: 900000, scale: 0.30, minScale: 0.0008, maxScale: 2.5 };
 
   R.init = function (canvas) {
     cv = canvas; ctx = cv.getContext('2d');
-    depthCv = document.createElement('canvas');
-    depthCv.width = W.NX; depthCv.height = W.NY;
-    depthCtx = depthCv.getContext('2d');
     R.resize();
-    /* one-off scenery detail so land does not look like flat paint */
-    var rng = U.mulberry32(90210);
-    R.scenery = [];
-    for (var i = 0; i < 900; i++) {
-      var x = rng() * W.WIDTH, y = rng() * W.HEIGHT;
-      if (W.getChartedDepth(x, y) < -1.2) R.scenery.push({ x: x, y: y, r: 40 + rng() * 220, k: rng() });
-    }
   };
 
   R.resize = function () {
@@ -35,26 +26,89 @@
   };
   R.size = function () { return { w: cw, h: ch }; };
 
-  /* ---------- depth shading, rebuilt when the tide has moved ---------- */
-  function depthColour(d, out, o) {
+  /* ---------- seabed shading ----------
+     The national raster is resampled once into projected space, so it can be
+     blitted like any other image. A cruising region is small enough that the
+     projection over it is very nearly affine, so those are drawn with a
+     transform instead of being resampled. */
+  function depthColour(d) {
     var r, g, b;
-    if (d <= -0.02) {                       // above water
-      var h = U.clamp(-d / 6, 0, 1);
-      r = 108 - h * 34; g = 112 - h * 26; b = 78 - h * 22;
-    } else if (d < 0.4) { r = 138; g = 150; b = 128; }
+    if (d <= -0.02) {
+      var h = U.clamp(-d / 90, 0, 1), s2 = U.clamp(-d / 6, 0, 1);
+      r = 96 + s2 * 24 - h * 46; g = 104 + s2 * 20 - h * 34; b = 74 + s2 * 10 - h * 30;
+    }
+    else if (d < 0.4) { r = 138; g = 150; b = 128; }
     else if (d < 1.2) { var t = (d - 0.4) / 0.8; r = 96 - t * 30; g = 156 - t * 8; b = 152 + t * 12; }
     else if (d < 3) { var t2 = (d - 1.2) / 1.8; r = 66 - t2 * 20; g = 148 - t2 * 22; b = 164 + t2 * 4; }
     else if (d < 7) { var t3 = (d - 3) / 4; r = 46 - t3 * 18; g = 126 - t3 * 32; b = 168 - t3 * 12; }
     else if (d < 14) { var t4 = (d - 7) / 7; r = 28 - t4 * 10; g = 94 - t4 * 28; b = 156 - t4 * 26; }
-    else { var t5 = U.clamp((d - 14) / 16, 0, 1); r = 18 - t5 * 6; g = 66 - t5 * 20; b = 130 - t5 * 34; }
-    out[o] = r; out[o + 1] = g; out[o + 2] = b; out[o + 3] = 255;
+    else { var t5 = U.clamp((d - 14) / 40, 0, 1); r = 18 - t5 * 8; g = 66 - t5 * 26; b = 130 - t5 * 44; }
+    return [r, g, b];
   }
-  function rebuildDepth(tide) {
-    var img = depthCtx.createImageData(W.NX, W.NY), d = W.depthArray(), px = img.data;
-    for (var i = 0; i < d.length; i++) depthColour(d[i] + tide, px, i * 4);
-    depthCtx.putImageData(img, 0, 0);
-    depthTide = tide;
+
+  var natCv = null, natBox = null, natTide = -99;
+  function buildNational(tide) {
+    var b = W.bounds();
+    var px = 900, py = Math.round(px * b.h / b.w);
+    if (!natCv) { natCv = document.createElement('canvas'); natCv.width = px; natCv.height = py; }
+    var cx = natCv.getContext('2d');
+    var img = cx.createImageData(px, py), o = img.data;
+    for (var j = 0; j < py; j++) {
+      var wy = b.y0 + b.h * (j + 0.5) / py;
+      for (var i = 0; i < px; i++) {
+        var wx = b.x0 + b.w * (i + 0.5) / px;
+        var c = depthColour(W.getChartedDepth(wx, wy) + tide);
+        var k = (j * px + i) * 4;
+        o[k] = c[0]; o[k + 1] = c[1]; o[k + 2] = c[2]; o[k + 3] = 255;
+      }
+    }
+    cx.putImageData(img, 0, 0);
+    natBox = b; natTide = tide;
   }
+
+  var regCache = {};
+  function regionCanvas(r, tide) {
+    var e = regCache[r.id];
+    if (e && Math.abs(e.tide - tide) < 0.25) return e;
+    var cv2 = (e && e.cv) || document.createElement('canvas');
+    cv2.width = r.nx; cv2.height = r.ny;
+    var cx = cv2.getContext('2d');
+    var img = cx.createImageData(r.nx, r.ny), o = img.data;
+    for (var j = 0; j < r.ny; j++) {
+      var lat = r.lat1 - j * r.dlat;
+      for (var i = 0; i < r.nx; i++) {
+        var lon = r.lon0 + i * r.dlon;
+        var c = depthColour(W.depthAtGeo(lon, lat) + tide);
+        var k = (j * r.nx + i) * 4;
+        o[k] = c[0]; o[k + 1] = c[1]; o[k + 2] = c[2]; o[k + 3] = 255;
+      }
+    }
+    cx.putImageData(img, 0, 0);
+    /* affine that maps raster pixels to projected metres, from three corners */
+    var p00 = U.rad ? null : null;
+    var A = S.Geo.project(r.lon0, r.lat1);
+    var B = S.Geo.project(r.lon1, r.lat1);
+    var C = S.Geo.project(r.lon0, r.lat0);
+    var m = { a: (B.x - A.x) / r.nx, b: (B.y - A.y) / r.nx,
+              c: (C.x - A.x) / r.ny, d: (C.y - A.y) / r.ny, e: A.x, f: A.y };
+    e = regCache[r.id] = { cv: cv2, m: m, tide: tide, r: r };
+    return e;
+  }
+  R.dropRegionCache = function () { regCache = {}; natTide = -99; };
+
+  /* ---------- coastline ---------- */
+  var coastCache = {};
+  function coastFor(r, lon0, lat0, lon1, lat1, level) {
+    var key = r.id + '|' + lon0.toFixed(2) + ',' + lat0.toFixed(2) + ',' +
+              lon1.toFixed(2) + ',' + lat1.toFixed(2) + '|' + level.toFixed(1);
+    if (coastCache[key]) return coastCache[key];
+    var stride = r.id === 'national' ? 1 : Math.max(1, Math.round(240 / r.cell));
+    var segs = W.contour(r, level, lon0, lat0, lon1, lat1, stride);
+    if (Object.keys(coastCache).length > 40) coastCache = {};
+    coastCache[key] = segs;
+    return segs;
+  }
+  R.dropCoastCache = function () { coastCache = {}; };
 
   /* ---------- transforms ---------- */
   function sx(x) { return (x - R.cam.x) * R.cam.scale + cw / 2; }
@@ -72,34 +126,29 @@
     ctx.closePath();
   }
 
-  function drawLand(t) {
-    var i;
-    ctx.save();
+  function drawCoast(t, tide) {
+    var g0 = S.Geo.unproject(R.cam.x - cw / 2 / R.cam.scale, R.cam.y - ch / 2 / R.cam.scale);
+    var g1 = S.Geo.unproject(R.cam.x + cw / 2 / R.cam.scale, R.cam.y + ch / 2 / R.cam.scale);
+    var lon0 = Math.min(g0.lon, g1.lon) - 0.02, lon1 = Math.max(g0.lon, g1.lon) + 0.02;
+    var lat0 = Math.min(g0.lat, g1.lat) - 0.02, lat1 = Math.max(g0.lat, g1.lat) + 0.02;
+    var r = W.rasterAt((lon0 + lon1) / 2, (lat0 + lat1) / 2);
+    if (!r) return;
+    /* the shoreline is where the water runs out, so it moves with the tide */
+    var z0 = W.chartDatumOffset((lon0 + lon1) / 2, (lat0 + lat1) / 2);
+    var segs = coastFor(r, lon0, lat0, lon1, lat1, Math.round((z0 - tide) * 2) / 2);
+    if (!segs.length) return;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(226,244,248,' + (0.34 + 0.16 * Math.sin(t * 1.4)) + ')';
+    ctx.lineWidth = Math.max(1.5, 8 * R.cam.scale);
     ctx.beginPath();
-    for (i = 0; i < W.LAND.length; i++) {
-      var pts = W.LAND[i].pts;
-      ctx.moveTo(sx(pts[0][0]), sy(pts[0][1]));
-      for (var q = 1; q < pts.length; q++) ctx.lineTo(sx(pts[q][0]), sy(pts[q][1]));
-      ctx.closePath();
+    for (var i = 0; i < segs.length; i += 4) {
+      ctx.moveTo(sx(segs[i]), sy(segs[i + 1]));
+      ctx.lineTo(sx(segs[i + 2]), sy(segs[i + 3]));
     }
-    ctx.fillStyle = '#6b6f52'; ctx.fill();
-    ctx.clip();                       /* keep fields and hedges ashore */
-    ctx.globalAlpha = 0.4;
-    for (i = 0; i < R.scenery.length; i++) {
-      var s = R.scenery[i], px = sx(s.x), py = sy(s.y), pr = s.r * R.cam.scale;
-      if (pr < 1.2 || px < -pr || py < -pr || px > cw + pr || py > ch + pr) continue;
-      ctx.fillStyle = s.k > 0.6 ? '#7c8158' : (s.k > 0.3 ? '#5d6246' : '#888c66');
-      ctx.beginPath(); ctx.ellipse(px, py, pr, pr * 0.7, s.k * 6, 0, U.TAU); ctx.fill();
-    }
-    ctx.restore();
-    /* surf line */
-    var surf = 0.45 + 0.25 * Math.sin(t * 1.4);
-    ctx.lineWidth = Math.max(1.5, 9 * R.cam.scale);
-    ctx.strokeStyle = 'rgba(226,244,248,' + (0.30 + 0.2 * surf) + ')';
-    for (i = 0; i < W.LAND.length; i++) { pathPoly(W.LAND[i].pts); ctx.stroke(); }
-    ctx.lineWidth = Math.max(1, 2 * R.cam.scale);
-    ctx.strokeStyle = 'rgba(30,42,30,.55)';
-    for (i = 0; i < W.LAND.length; i++) { pathPoly(W.LAND[i].pts); ctx.stroke(); }
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(28,40,30,.65)';
+    ctx.lineWidth = Math.max(1, 2.2 * R.cam.scale);
+    ctx.stroke();
   }
 
   /* ---------- sea surface ---------- */
@@ -160,6 +209,8 @@
     port: '#d0342c', stbd: '#25a35a', safe: '#d8443c', danger: '#111',
     north: '#111', south: '#111', east: '#111', west: '#111', light: '#e8e2d0', tower: '#e8e2d0'
   };
+  var KIND = { L: 'lat', l: 'lat', C: 'card', c: 'card', W: 'safe', w: 'safe',
+               D: 'danger', d: 'danger', M: 'light', m: 'light', V: 'light', K: 'light' };
   function drawMark(m, t, night) {
     var px = sx(m.x), py = sy(m.y);
     if (px < -40 || py < -40 || px > cw + 40 || py > ch + 40) return;
@@ -167,30 +218,31 @@
     ctx.save(); ctx.translate(px, py);
     ctx.lineWidth = 1;
     ctx.strokeStyle = 'rgba(0,0,0,.55)';
-    if (m.t === 'light' || m.t === 'tower') {
+    var kind = KIND[m.t] || 'lat';
+    if (kind === 'light') {
       ctx.fillStyle = '#efe8d4';
       ctx.beginPath(); ctx.moveTo(-s * 0.45, s * 0.6); ctx.lineTo(-s * 0.28, -s);
       ctx.lineTo(s * 0.28, -s); ctx.lineTo(s * 0.45, s * 0.6); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#b83c2c';
       ctx.fillRect(-s * 0.36, -s * 0.45, s * 0.72, s * 0.38);
-    } else if (m.t === 'danger') {
+    } else if (kind === 'danger') {
       ctx.fillStyle = '#141414';
       ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s * 0.5, s * 0.5); ctx.lineTo(-s * 0.5, s * 0.5); ctx.closePath();
       ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#c0392b'; ctx.fillRect(-s * 0.34, -s * 0.15, s * 0.68, s * 0.3);
-    } else if (m.t === 'north' || m.t === 'south' || m.t === 'east' || m.t === 'west') {
+    } else if (kind === 'card') {
       ctx.fillStyle = '#f0c419';
       ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s * 0.46, s * 0.55); ctx.lineTo(-s * 0.46, s * 0.55); ctx.closePath();
       ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#141414';
-      if (m.t === 'north') ctx.fillRect(-s * 0.4, -s, s * 0.8, s * 0.75);
-      else if (m.t === 'south') ctx.fillRect(-s * 0.44, -s * 0.1, s * 0.88, s * 0.65);
-      else if (m.t === 'east') { ctx.fillRect(-s * 0.42, -s * 0.9, s * 0.84, s * 0.42); ctx.fillRect(-s * 0.44, s * 0.15, s * 0.88, s * 0.4); }
+      if (m.cat === 'n') ctx.fillRect(-s * 0.4, -s, s * 0.8, s * 0.75);
+      else if (m.cat === 'S') ctx.fillRect(-s * 0.44, -s * 0.1, s * 0.88, s * 0.65);
+      else if (m.cat === 'e') { ctx.fillRect(-s * 0.42, -s * 0.9, s * 0.84, s * 0.42); ctx.fillRect(-s * 0.44, s * 0.15, s * 0.88, s * 0.4); }
       else ctx.fillRect(-s * 0.43, -s * 0.42, s * 0.86, s * 0.62);
-    } else if (m.t === 'port') {
+    } else if (kind === 'lat' && m.cat === 'p') {
       ctx.fillStyle = MARK_COL.port;
       ctx.beginPath(); ctx.rect(-s * 0.42, -s * 0.75, s * 0.84, s * 1.35); ctx.fill(); ctx.stroke();
-    } else if (m.t === 'stbd') {
+    } else if (kind === 'lat' && m.cat === 's') {
       ctx.fillStyle = MARK_COL.stbd;
       ctx.beginPath(); ctx.moveTo(0, -s * 0.9); ctx.lineTo(s * 0.46, s * 0.6); ctx.lineTo(-s * 0.46, s * 0.6);
       ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -205,7 +257,7 @@
       var per = m.lt.indexOf('LFl') >= 0 ? 10 : m.lt.indexOf('Q') >= 0 ? 1 : 4.5;
       var on = (E.t % per) / per < (per > 6 ? 0.22 : 0.16);
       if (on) {
-        var col = m.t === 'port' ? '#ff5a4a' : m.t === 'stbd' ? '#54ff8a' : '#fff2b0';
+        var col = m.cat === 'p' ? '#ff5a4a' : m.cat === 's' ? '#54ff8a' : '#fff2b0';
         var g = ctx.createRadialGradient(0, -s * 0.4, 0, 0, -s * 0.4, s * 3.2);
         g.addColorStop(0, col); g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.globalAlpha = 0.85 * night; ctx.fillStyle = g;
@@ -213,10 +265,10 @@
       }
     }
     ctx.restore();
-    if (R.cam.scale > 0.22) {
+    if (R.cam.scale > 0.35 && m.n) {
       ctx.fillStyle = 'rgba(240,248,252,.72)';
       ctx.font = '10px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center';
-      ctx.fillText(m.n, px, py + s + 11);
+      if (m.n) ctx.fillText(m.n, px, py + s + 11);
     }
   }
 
@@ -428,22 +480,41 @@
     ctx.clearRect(0, 0, cw, ch);
 
     var tide = E.tideHeight(v.x, v.y);
-    if (Math.abs(tide - depthTide) > 0.12) rebuildDepth(tide);
+    if (Math.abs(tide - natTide) > 0.3 || !natCv) buildNational(tide);
 
-    /* seabed */
+    /* national seabed */
     ctx.imageSmoothingEnabled = true;
-    var x0 = sx(-W.CELL / 2), y0 = sy(-W.CELL / 2);
-    ctx.drawImage(depthCv, x0, y0, W.WIDTH * R.cam.scale + W.CELL * R.cam.scale,
-                  W.HEIGHT * R.cam.scale + W.CELL * R.cam.scale);
+    var nb = natBox;
+    ctx.drawImage(natCv, sx(nb.x0), sy(nb.y0),
+                  nb.w * R.cam.scale, nb.h * R.cam.scale);
+
+    /* the cruising region under the boat, in its own detail */
+    var reg = W.regionAt(v.x, v.y);
+    if (reg && R.cam.scale > 0.004) {
+      var rc = regionCanvas(reg, tide), m = rc.m;
+      ctx.save();
+      ctx.translate(sx(0), sy(0));
+      ctx.scale(R.cam.scale, R.cam.scale);
+      ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+      ctx.drawImage(rc.cv, 0, 0);
+      ctx.restore();
+    }
 
     var wind = E.wind(v.x, v.y), wx = E.weather(), night = 1 - E.daylight();
     var sea = v._sea || { hs: 0.3 };
     drawWaves(t, sea.hs, wind.dir);
     if (opts.showStream) drawStream(t);
-    drawLand(t);
+    drawCoast(t, tide);
 
-    for (var i = 0; i < W.PORTS.length; i++) drawPort(W.PORTS[i]);
-    for (var j = 0; j < W.MARKS.length; j++) drawMark(W.MARKS[j], t, night);
+    var vx0 = R.cam.x - cw / 2 / R.cam.scale, vx1 = R.cam.x + cw / 2 / R.cam.scale;
+    var vy0 = R.cam.y - ch / 2 / R.cam.scale, vy1 = R.cam.y + ch / 2 / R.cam.scale;
+    var pl = W.portsWithin((vx0 + vx1) / 2, (vy0 + vy1) / 2,
+                           U.len(vx1 - vx0, vy1 - vy0) / 2 + 4000);
+    for (var i = 0; i < pl.length; i++) drawPort(pl[i]);
+    if (R.cam.scale > 0.02) {
+      W.marksIn(vx0, vy0, vx1, vy1, markBuf);
+      for (var j = 0; j < markBuf.length && j < 400; j++) drawMark(markBuf[j], t, night);
+    }
 
     /* the player's own waypoint, if set on the chart */
     if (opts.waypoint) {

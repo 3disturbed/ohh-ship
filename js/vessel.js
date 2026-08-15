@@ -472,7 +472,7 @@
     this.yawRate += N / this.inertia * dt;
     this.hdg = U.wrap(this.hdg + this.yawRate * dt);
     this.x += this.vx * dt; this.y += this.vy * dt;
-    this.x = U.clamp(this.x, 40, W.WIDTH - 40); this.y = U.clamp(this.y, 40, W.HEIGHT - 40);
+    W.clampPos(this);
 
     /* aground: she stops. Only a real effort towards deeper water shifts her,
        and the softer the bottom the better the chance (§11). */

@@ -16,74 +16,38 @@
   E.t = 6 * 3600;            // world time, seconds since Day 1 00:00
   E.seed = 1337;
 
-  /* ===================== tidal height (§20) ===================== */
-  /** local high-water lag in seconds — the tide runs later up the estuary */
-  function tideLag(x, y) {
-    var lag = 0;
-    if (x > 16500 && y < 6200) lag += 1500 * U.smooth((x - 16500) / 2500) * U.smooth((6200 - y) / 3000);
-    if (U.len(x - 10870, y - 9900) < 1600) lag += 900;
-    if (x < 3500 && y > 9000) lag += 600;
-    return lag;
-  }
-  E.tideLag = tideLag;
+  /* ===================== tides (§20, §21) =====================
+     All of this now comes from Tide, which interpolates harmonic constants
+     fitted to real gauge records. Positions arrive in game metres, so they
+     are unprojected first. */
+  function geo(x, y) { return S.Geo.unproject(x, y); }
 
-  /** springs/neaps multiplier, 0.42 (neaps) .. 1.0 (springs) */
-  E.springFactor = function (t) {
-    return 0.71 + 0.29 * Math.cos(U.TAU * (t - E.SPRING0) / E.SPRING_PERIOD);
-  };
-  E.range = function (t) { return 1.6 + 2.1 * (E.springFactor(t) - 0.42) / 0.58; };
-
-  function heightAt(t, lag) {
-    var rng = E.range(t);
-    return E.MSL + (rng / 2) * Math.cos(U.TAU * (t - lag - E.HW0) / E.T_SEMI);
-  }
   /** height of tide above chart datum, metres */
   E.tideHeight = function (x, y, t) {
     if (t === undefined) t = E.t;
-    return heightAt(t, tideLag(x, y));
+    var g = geo(x, y);
+    return S.Tide.height(g.lon, g.lat, t);
   };
-  /** full tidal picture at a place: height, rate of rise, next HW/LW */
   E.tideInfo = function (x, y, t) {
     if (t === undefined) t = E.t;
-    var lag = tideLag(x, y), h = heightAt(t, lag);
-    var rate = (heightAt(t + 60, lag) - heightAt(t - 60, lag)) / 2; // m per minute
-    var ph = U.TAU * (t - lag - E.HW0) / E.T_SEMI;
-    var k = Math.floor(ph / U.TAU);
-    var nextHW = E.HW0 + lag + (k + 1) * E.T_SEMI;
-    var nextLW = E.HW0 + lag + (k + (ph - k * U.TAU > Math.PI ? 1.5 : 0.5)) * E.T_SEMI;
-    if (nextLW < t) nextLW += E.T_SEMI;
-    return {
-      height: h, rate: rate, rising: rate > 0,
-      nextHW: nextHW, nextHWHeight: heightAt(nextHW, lag),
-      nextLW: nextLW, nextLWHeight: heightAt(nextLW, lag),
-      range: E.range(t), springs: E.springFactor(t)
-    };
+    var g = geo(x, y);
+    return S.Tide.info(g.lon, g.lat, t);
   };
-  /** actual depth of water (§53) */
-  E.waterDepth = function (x, y, t) { return W.getChartedDepth(x, y) + E.tideHeight(x, y, t); };
+  E.springFactor = function (t) { return 0.71; };      // kept for old callers
+  E.waterDepth = function (x, y, t) {
+    return W.getChartedDepth(x, y) + E.tideHeight(x, y, t);
+  };
 
-  /* ===================== tidal stream (§21) ===================== */
-  function zoneWeight(z, x, y) {
-    var u = (x - z.x) / z.rx, v = (y - z.y) / z.ry, r = Math.sqrt(u * u + v * v);
-    return r >= 1 ? 0 : U.smooth(1 - r);
-  }
-  /** tidal stream vector in m/s over the ground */
+  /** tidal stream, metres per second over the ground */
   E.current = function (x, y, t) {
     if (t === undefined) t = E.t;
-    var sf = E.springFactor(t), cx = 0, cy = 0, tw = 0;
-    for (var i = 0; i < W.STREAMS.length; i++) {
-      var z = W.STREAMS[i], w = zoneWeight(z, x, y);
-      if (w <= 0) continue;
-      var ph = U.TAU * (t - E.HW0 - z.lag * 3600) / E.T_SEMI;
-      var rate = -Math.sin(ph) * z.rate * sf * U.KN;   // flood positive on the rising tide
-      var d = U.rad(z.dir), v = U.hvec(d);
-      cx += v.x * rate * w; cy += v.y * rate * w; tw += w;
-    }
-    if (tw > 1) { cx /= tw; cy /= tw; }
-    /* the stream dies away in very shallow water and inside harbours */
-    var dep = W.getChartedDepth(x, y) + E.tideHeight(x, y, t);
-    var f = U.clamp(dep / 2.5, 0, 1);
-    return { x: cx * f, y: cy * f };
+    var g = geo(x, y);
+    var dep = W.depthAtGeo(g.lon, g.lat) + S.Tide.height(g.lon, g.lat, t);
+    if (dep < 0.4) return { x: 0, y: 0 };
+    var c = S.Tide.stream(g.lon, g.lat, t, dep);
+    /* the stream dies away in the shallows and inside harbours */
+    var f = U.clamp(dep / 3, 0, 1);
+    return { x: c.x * f, y: c.y * f };
   };
 
   /* ===================== weather & wind (§12, §25) ===================== */
@@ -168,7 +132,8 @@
     var w = E.wind(x, y, t), v = U.hvec(w.dir), fetch = 0;
     for (var d = 500; d <= 16000; d += 1300) {
       var sx = x + v.x * d, sy = y + v.y * d;
-      if (sx < -500 || sy < -500 || sx > W.WIDTH + 500 || sy > W.HEIGHT + 500) { fetch = d; break; }
+      var gg = S.Geo.unproject(sx, sy);
+      if (gg.lat < 49.6 || gg.lat > 61.2 || gg.lon < -9 || gg.lon > 2.2) { fetch = d; break; }
       if (W.getChartedDepth(sx, sy) < -0.3) { fetch = d; break; }
       fetch = d;
     }

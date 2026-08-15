@@ -7,40 +7,20 @@
   Ec.FUEL_PRICE = 1.95;        // £ per litre
   Ec.SLOT = 4 * 3600;          // contracts on the board refresh every four hours
 
-  /* Which cargoes each harbour sends and receives. */
-  var TRADE = {
-    westhaven: { out: ['mail', 'groceries', 'parts', 'tools', 'medical', 'machinery', 'building', 'passenger', 'fuel'],
-                 in:  ['fish', 'timber', 'produce', 'gear'] },
-    ferryhard: { out: ['produce', 'timber', 'passenger'], in: ['groceries', 'mail', 'tools', 'building'] },
-    stmarys:   { out: ['produce', 'timber', 'passenger', 'machinery'], in: ['mail', 'groceries', 'medical', 'parts', 'building', 'fuel'] },
-    kellan:    { out: ['fish', 'gear', 'yachtpart'], in: ['mail', 'groceries', 'parts', 'fuel', 'medical', 'passenger'] },
-    skercreek: { out: ['fish', 'gear'], in: ['mail', 'groceries', 'gear', 'medical', 'fuel', 'tools'] },
-    cormorant: { out: ['fish', 'produce'], in: ['mail', 'groceries', 'parts', 'building', 'passenger'] }
-  };
+  /* What a harbour ships depends on what kind of place it is, which we infer
+     from its size and its facilities rather than a hand-written table — there
+     are a hundred and fifty of them now. */
+  var BIG = ['mail', 'groceries', 'parts', 'tools', 'medical', 'machinery',
+             'building', 'passenger', 'fuel', 'yachtpart'];
+  var SMALL = ['fish', 'gear', 'produce', 'timber', 'passenger', 'mail'];
+  function sends(p) { return p.size > 0.8 ? BIG : SMALL; }
+  function takes(p) { return p.size > 0.8 ? SMALL.concat(['parts', 'fuel']) : BIG; }
 
-  /* ---- controlling depth on the approach to each harbour (the tidal gate) ---- */
-  var gates = null;
-  function buildGates() {
-    gates = {};
-    for (var i = 0; i < W.PORTS.length; i++) {
-      var p = W.PORTS[i], best = -99;
-      /* Try every direction out of the harbour. The controlling depth is the
-         shallowest water on the deepest available way in. */
-      for (var a = 0; a < 36; a++) {
-        var br = a * Math.PI / 18, dx = Math.sin(br), dy = -Math.cos(br), worst = 99;
-        for (var r = 60; r <= 3200; r += 60) {
-          var d = W.getChartedDepth(p.x + dx * r, p.y + dy * r);
-          if (d < worst) worst = d;
-          if (d > 6) break;                 // reached open water
-          if (r >= 3200) worst = -99;       // never got out this way
-        }
-        if (worst > best) best = worst;
-      }
-      gates[p.id] = Math.round(Math.min(best, p.basin) * 100) / 100;
-    }
-  }
-  /** charted depth of the shallowest point a vessel must cross to enter */
-  Ec.gate = function (portId) { if (!gates) buildGates(); return gates[portId]; };
+  /** charted depth of the shallowest water on the way in */
+  Ec.gate = function (portId) {
+    var p = W.port(portId);
+    return p && p.gate !== undefined ? p.gate : 2;
+  };
 
   /** can this vessel get in at time t?  (§20, §11) */
   Ec.accessible = function (portId, draft, t, margin) {
@@ -54,7 +34,7 @@
     var end = from + 26 * 3600, step = 300, t;
     /* a harbour that is deep enough at low water has no gate at all */
     var p = W.port(portId), worst = Infinity;
-    for (t = from; t < from + E.T_SEMI * 2; t += step) worst = Math.min(worst, E.tideHeight(p.x, p.y, t));
+    for (t = from; t < from + 89400; t += step) worst = Math.min(worst, E.tideHeight(p.x, p.y, t));
     if (worst >= draft + margin - Ec.gate(portId)) return { nowOpen: true, always: true };
 
     if (Ec.accessible(portId, draft, from, margin)) {
@@ -79,15 +59,16 @@
 
   function makeContract(rng, origin, destId, seedKey, player) {
     var dest = W.port(destId);
-    var pool = TRADE[origin.id].out.filter(function (c) { return TRADE[destId].in.indexOf(c) >= 0; });
-    if (!pool.length) pool = TRADE[destId].in;
+    var pool = sends(origin).filter(function (c) { return takes(dest).indexOf(c) >= 0; });
+    if (!pool.length) pool = takes(dest);
     var type = U.pick(rng, pool);
     var cd = D.CARGO[type];
     var distM = W.passageDistance(origin, dest), nm = distM / U.NM;
 
     /* size the load against what the player can actually lift, with the
        occasional consignment that needs a bigger boat */
-    var hold = player && player.payload ? player.payload : 500;
+    var hold = (player && player.payload) ||
+               (S.Game && S.Game.vessel && S.Game.vessel.spec.max_payload_kg) || 700;
     var cap = hold * (0.14 + rng() * 0.82);
     if (rng() < 0.18) cap = hold * (1.15 + rng() * 0.6);  // freight that wants a bigger boat
     var mass = Math.max(20, Math.round(cap / 10) * 10);
@@ -105,10 +86,11 @@
     var deadline = E.t + Math.max(2400, dur);
 
     var rep = player ? player.reputation : 20;
-    var reward = (26 + cd.rate * mass * (0.16 + 0.05 * nm)) * (urgent ? 1.55 : 1) * (0.86 + rep / 100 * 0.5);
+    var reward = (26 + cd.rate * mass * (0.16 + 0.9 * Math.sqrt(nm) / 10)) *
+                 (urgent ? 1.55 : 1) * (0.86 + rep / 100 * 0.5);
     if (round) reward *= 1.85;
     var gate = Ec.gate(destId);
-    var risk = U.clamp((1.6 - gate) * 0.4 + (destId === 'kellan' ? 0.25 : 0) + (destId === 'stmarys' ? 0.2 : 0), 0, 1);
+    var risk = U.clamp((1.6 - gate) * 0.4 + (nm > 25 ? 0.2 : 0), 0, 1);
     reward *= 1 + risk * 0.35;
 
     return {
@@ -134,16 +116,17 @@
     var key = port.id + '|' + slot + '|' + (player.seed || 0);
     if (Ec._cache && Ec._cache.key === key) return Ec._cache.list;
     var rng = U.mulberry32(hashStr(key));
-    var dests = W.PORTS.filter(function (p) { return p.id !== port.id; });
+    var near = W.portsWithin(port.x, port.y, 90000).filter(function (p) { return p.id !== port.id; });
+    near.sort(function (a, b) { return U.dist(port, a) - U.dist(port, b); });
+    var dests = near.slice(0, 14);
+    if (!dests.length) dests = W.PORTS.filter(function (p) { return p.id !== port.id; }).slice(0, 6);
     var n = Math.round(2 + port.size * 4 + player.reputation / 45);
     var list = [];
     for (var i = 0; i < n; i++) {
       var dest = U.pick(rng, dests);
       /* better reputation attracts the longer, richer runs */
-      if (player.reputation < 25 && rng() < 0.5) {
-        dests.sort(function (a, b) { return U.dist(port, a) - U.dist(port, b); });
-        dest = dests[Math.floor(rng() * 3) % dests.length];
-      }
+      if (player.reputation < 25 && rng() < 0.55)
+        dest = dests[Math.floor(rng() * Math.min(5, dests.length))];
       var c = makeContract(rng, port, dest.id, key + '#' + i, player);
       if (player.done.indexOf(c.id) >= 0) continue;
       if (player.contracts.some(function (a) { return a.id === c.id; })) continue;

@@ -33,6 +33,21 @@ if ('serviceWorker' in navigator) {
 </head>
 <body>
 
+<div id="loading">
+  <div class="load-box">
+    <h1>Ohh Ship!</h1>
+    <div class="load-sub">Sailing courier simulator &mdash; United Kingdom</div>
+    <div class="load-bar"><i id="loadBar"></i></div>
+    <div id="loadMsg" class="load-msg">Starting up</div>
+    <div class="load-credit">
+      Bathymetry &copy; EMODnet Bathymetry Consortium (CC-BY 4.0) &middot;
+      marks &copy; OpenStreetMap contributors (ODbL) &middot;
+      tides from Environment Agency gauge records (OGL v3.0)<br>
+      <b>NOT FOR NAVIGATION</b>
+    </div>
+  </div>
+</div>
+
 <div id="app">
 
   <!-- ============ WORLD VIEW ============ -->
@@ -186,8 +201,11 @@ if ('serviceWorker' in navigator) {
 </div>
 
 <script src="js/util.js?v=6"></script>
+<script src="js/geo.js?v=6"></script>
 <script src="js/data.js?v=6"></script>
+<script src="js/tide.js?v=6"></script>
 <script src="js/world.js?v=6"></script>
+<script src="js/atlas.js?v=6"></script>
 <script src="js/environment.js?v=6"></script>
 <script src="js/vessel.js?v=6"></script>
 <script src="js/economy.js?v=6"></script>

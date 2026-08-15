@@ -7,7 +7,7 @@
   var G = S.Game = {};
 
   var PHYS_HZ = 20, PHYS_DT = 1 / PHYS_HZ;
-  var SAVE_KEY = 'ohhship.save.v2';
+  var SAVE_KEY = 'ohhship.save.v3';
   var RATES = [1, 8, 30];
 
   G.rate = 1;
@@ -44,19 +44,31 @@
     };
   }
 
+  /** where a new skipper starts: a real harbour on the Solent if we have it */
+  G.homePort = function () {
+    var best = null, bd = Infinity;
+    var target = S.Geo.project(-1.52, 50.756);        // Lymington
+    W.PORTS.forEach(function (p) {
+      var d = U.len(p.x - target.x, p.y - target.y);
+      if (d < bd) { bd = d; best = p; }
+    });
+    return best || W.PORTS[0];
+  };
+
   G.newGame = function (startId) {
     localStorage.removeItem(SAVE_KEY);
     var start = G.STARTS.filter(function (x) { return x.id === startId; })[0] || G.STARTS[1];
     G.startChoice = start.id;
     G.player = blankPlayer(start);
     E.t = 6.2 * 3600;
-    var home = W.port('westhaven');
+    var home = G.homePort();
     var v = new S.Vessel('centaur');
     v.hdg = U.rad(180);
     v.mooredTo(home.x, home.y);
     v.dr.x = home.x; v.dr.y = home.y;
     v.fuel = v.fuelCapacity() * 0.45;
     G.fleet = [v]; G.active = 0;
+    G.player.payload = v.spec.max_payload_kg;
     G.setActive(0);
     R.clearWake();
     Ec.invalidate();
@@ -100,7 +112,7 @@
   G.save = function () {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        version: 3, t: E.t, player: G.player,
+        version: 4, t: E.t, player: G.player,
         fleet: G.fleet.map(function (v) { return v.save(); }), active: G.active,
         atPort: G.atPort ? G.atPort.id : null,
         settings: G.settings
@@ -115,7 +127,7 @@
     if (!raw) return false;
     try {
       var s = JSON.parse(raw);
-      if (s.version !== 3) return false;
+      if (s.version !== 4) return false;
       G.player = s.player;
       if (!G.player.stats) G.player.stats = { jobs: 0, lateJobs: 0, earned: 0, groundings: 0, tacks: 0 };
       if (!isFinite(G.player.money)) G.player.money = 0;
@@ -306,7 +318,7 @@
       });
       v.cargo = [];
       v.damage.hull = 0.6;
-      var home = W.port('westhaven');
+      var home = G.homePort();
       v.x = home.x; v.y = home.y; v.vx = v.vy = 0; v.fuel = Math.min(v.fuel, 5);
       UI.showPort(home, null);
     }
@@ -466,17 +478,28 @@
 
   /* ===================== boot ===================== */
   G.init = function () {
-    W.build();
-    R.init(document.getElementById('world'));
-    C.init(document.getElementById('chartCanvas'));
-    I.init(document.getElementById('instruments'));
-    UI.init(G);
-    if (!G.load()) G.newGame();
-    UI.syncControls(G.vessel);
-    window.addEventListener('resize', function () { R.resize(); C.resize(); I.resize(); });
-    setInterval(function () { if (!G.atPort) G.save(); }, 30000);
-    lastT = performance.now();
-    requestAnimationFrame(loop);
+    var bar = document.getElementById('loadBar'), msg = document.getElementById('loadMsg');
+    S.Atlas.load(function (text, frac) {
+      if (msg) msg.textContent = text;
+      if (bar) bar.style.width = Math.round(frac * 100) + '%';
+    }).then(function (stats) {
+      console.log('world ready', stats);
+      R.init(document.getElementById('world'));
+      C.init(document.getElementById('chartCanvas'));
+      I.init(document.getElementById('instruments'));
+      UI.init(G);
+      if (!G.load()) G.newGame();
+      UI.syncControls(G.vessel);
+      window.addEventListener('resize', function () { R.resize(); C.resize(); I.resize(); });
+      setInterval(function () { if (!G.atPort) G.save(); }, 30000);
+      var l = document.getElementById('loading');
+      if (l) { l.classList.add('gone'); setTimeout(function () { l.remove(); }, 600); }
+      lastT = performance.now();
+      requestAnimationFrame(loop);
+    }).catch(function (e) {
+      console.error(e);
+      if (msg) msg.innerHTML = 'Could not load the world data.<br>' + U.esc(e.message);
+    });
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', G.init);

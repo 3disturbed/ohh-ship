@@ -246,7 +246,7 @@
       right(ti.rising ? 'flooding' : 'ebbing', c.rx, c.r1);
       if (c.two) right((Math.abs(ti.rate) * 60).toFixed(1) + ' m/h', c.rx, c.r2);
     }
-    bar(c, (ti.height - (E.MSL - ti.range / 2)) / ti.range, ti.rising ? CY : ACC);
+    bar(c, (ti.height - (ti.nextLWHeight)) / Math.max(0.4, ti.range), ti.rising ? CY : ACC);
   }
 
   /* ---------- frame ---------- */

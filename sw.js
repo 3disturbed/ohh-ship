@@ -9,9 +9,36 @@ var ASSETS = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/maskable-512.png',
-  './icons/apple-touch-icon.png'
+  './icons/apple-touch-icon.png',
+  './data/uk-bathy.json',
+  './data/uk-bathy.png',
+  './data/uk-tides.json',
+  './data/uk-marks.json',
+  './data/regions/index.json',
+  './data/regions/solent.png',
+  './data/regions/poole.png',
+  './data/regions/chichester.png',
+  './data/regions/dover.png',
+  './data/regions/thames.png',
+  './data/regions/suffolk.png',
+  './data/regions/norfolk.png',
+  './data/regions/wash.png',
+  './data/regions/humber.png',
+  './data/regions/tyne.png',
+  './data/regions/forth.png',
+  './data/regions/clyde.png',
+  './data/regions/oban.png',
+  './data/regions/skye.png',
+  './data/regions/menai.png',
+  './data/regions/milford.png',
+  './data/regions/severn.png',
+  './data/regions/falmouth.png',
+  './data/regions/plymouth.png',
+  './data/regions/dart.png',
+  './data/regions/scilly.png',
+  './data/regions/belfast.png'
 ].concat(['util', 'data', 'world', 'environment', 'vessel', 'economy', 'education',
-          'render', 'chart', 'instruments', 'ui', 'game']
+          'render', 'chart', 'instruments', 'ui', 'game', 'geo', 'tide', 'atlas']
   .map(function (n) { return './js/' + n + '.js?v=' + ASSET_V; }));
 
 self.addEventListener('install', function (e) {
