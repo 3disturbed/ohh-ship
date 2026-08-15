@@ -1,5 +1,5 @@
 /* sw.js — offline cache. Bump ASSET_V here and in index.html together. */
-var ASSET_V = '5';
+var ASSET_V = '6';
 var CACHE = 'ohh-ship-v' + ASSET_V;
 var ASSETS = [
   './',

@@ -281,7 +281,7 @@
     var wt = { x: -wf.x, y: -wf.y };                            // wind blows this way
     var heelF = Math.pow(Math.cos(this.heel), 1.3);
     var quality = (this.has('sails2') ? 1.08 : 1) * (1 - 0.45 * this.damage.sails) * 0.86;
-    var drive = 0, sideBody = 0, yawSail = 0, sailSide = 0;
+    var drive = 0, sideBody = 0, yawSail = 0, sailLateral = 0;
     this.luffMain = 0; this.luffJib = 0;
     var self = this;
 
@@ -300,28 +300,43 @@
       var lx = nx - dot * wt.x, ly = ny - dot * wt.y;
       var ll = U.len(lx, ly);
       if (ll > 1e-4) { lx /= ll; ly /= ll; } else { lx = 0; ly = 0; }
-      /* A soft sail only holds its shape when the wind is on its leeward face.
-         Pressed the other way it is backed: it still pushes — that is how you
-         get out of irons — but it flogs and cannot set properly. */
-      var backed = (sinA >= 0 ? 1 : -1) === (saDeg >= 0 ? 1 : -1);
-      var luff = aoa < 7 ? U.clamp((7 - aoa) / 7, 0, 1) : 0;
-      var scale = (1 - luff * 0.92) * quality * heelF * (backed ? 0.45 : 1);
+      /* A sail is cloth, not a board. It only holds a shape when the wind
+         fills it from the right side:
+           - sheeted inside the wind angle  -> it draws
+           - eased out past the wind angle  -> it simply flogs, and a flogging
+             sail neither drives you forward nor drives you astern
+           - set on the windward side       -> genuinely backed: it holds, and
+             pushes the wrong way, which is how you come out of irons. */
+      var setSide = saDeg >= 0 ? 1 : -1;
+      var eased = Math.abs(saDeg);
+      var backed = setSide === windSide;
+      var overEased = !backed && eased > aAbs - 2;
+      /* Air has to arrive at the luff and leave at the leech. Coming at the
+         leech instead — a main strapped amidships on a run — the sail is
+         backwinded and does nothing but flap. Square to the wind there is no
+         leading edge at all: the sail is simply a drag device, and works. */
+      var backwind = (wt.x * d.x + wt.y * d.y) < 0.02 ? U.clamp((60 - aoa) / 15, 0, 1) : 0;
+      var luff;
+      if (overEased) luff = U.clamp((eased - aAbs + 2) / 9, 0, 1);
+      else luff = aoa < 7 ? U.clamp((7 - aoa) / 7, 0, 1) : 0;
+      luff = Math.max(luff, backwind);
+      var scale = (1 - luff * 0.96) * quality * heelF * (backed ? 0.45 : 1);
       var c = coeffs(aoa);
       var L = q * A * c.cl * scale, Dg = q * A * c.cd * scale;
       var fx = L * lx + Dg * wt.x, fy = L * ly + Dg * wt.y;
-      drive += fx; sideBody += fy; sailSide += fy;
+      drive += fx; sideBody += fy; sailLateral += fy;
       yawSail += xPos * fy;
       if (which === 'm') self.luffMain = luff; else self.luffJib = luff;
     }
     addSail(area.main, this.boomAngle, this.xMain, 'm');
     addSail(area.jib, this.jibAngle, this.xJib, 'j');
-    yawSail -= this.xCLR * sailSide;         /* hull lateral reaction at the CLR */
+    yawSail -= this.xCLR * sailLateral;      /* hull lateral reaction at the CLR */
 
     /* windage on hull and rig (§6) — the bow presents far less area than the side.
        It acts well forward of the keel, which is why a boat will not sit head to
        wind: the bow always blows off onto one tack or the other. */
     var wq = 0.5 * U.RHO_AIR * this.aws * this.aws * s.windage_m2 * 0.8;
-    drive += wq * wt.x * 0.34;
+    drive += wq * wt.x * (wt.x < 0 ? 0.22 : 0.34);   // less area head to wind than square
     sideBody += wq * wt.y;
 
 
@@ -335,8 +350,9 @@
     var seaF = 1 + 0.30 * U.clamp(sea.hs / 1.6, 0, 2.2);
     var foul = 1 + 0.35 * this.damage.hull;
     var resF = loadF * seaF * foul;
-    var visc = this.kVisc * resF * Math.pow(absU, 1.85);
-    var wave = this.kWave * resF * absU * absU * Math.pow(Math.max(0, r - 0.5), 3);
+    var astern = u < 0 ? 1.7 : 1;         // transom first, rudder stalled, keel sideways
+    var visc = this.kVisc * resF * astern * Math.pow(absU, 1.85);
+    var wave = this.kWave * resF * astern * absU * absU * Math.pow(Math.max(0, r - 0.5), 3);
     var dragSurge = -U.sign(u) * (visc + wave);
     /* lateral resistance from the keel (§24). The energy lost to leeway comes
        out of the vector integration below — it must not be charged twice. */
@@ -359,7 +375,10 @@
     /* the hull seeks its own water track going forward, and is directionally
        unstable going astern — which is why backing a boat is so squirrelly */
     var yawWeather = this.kWeather * lat * u;
-    var yawHeelInduced = this.kHeel * Math.sin(this.heel) * absU * absU * (this.awa >= 0 ? 1 : -1) * -1;
+    /* heel makes the hull asymmetric, which always tries to turn her up into
+       the wind — whichever tack she is on */
+    var yawHeelInduced = this.kHeel * Math.abs(Math.sin(this.heel)) * absU * absU *
+                         (this.awa >= 0 ? 1 : -1);
     var yawWalk = (this.engine.running && this.engine.gear < 0) ? 420 * (m / 1500) * this.engineLoad : 0;
     var yawWave = (U.fbm(this.x / 60, this.y / 60 + E.t * 0.5, 2, 5) - 0.5) * sea.hs * 260 * (m / 1500);
     /* yaw damping is hydrodynamic: it fades as the boat loses way, which is
@@ -529,7 +548,7 @@
       /* Heel is the honest signal that a boat is carrying too much sail for
          the breeze, whatever her size. Past about 25 degrees she is being
          damaged as well as slowed. */
-      var over = (Math.abs(U.deg(this.heel)) - 25) / 12;
+      var over = (Math.abs(U.deg(this.heel)) - 23) / 12;
       if (over > 0) {
         var rate = over * over * dt;
         this.damage.sails = Math.min(1, this.damage.sails + rate * 0.00008);
