@@ -11,6 +11,8 @@
   var A = S.Atlas = {};
 
   A.base = 'data/';
+  A.v = '8';                       // bump with the asset version
+  function u(p) { return A.base + p + '?v=' + A.v; }
   A.progress = function () {};
 
   /* ---------------- fetch helpers ---------------- */
@@ -38,6 +40,7 @@
 
   /* ---------------- ports ---------------- */
   var MIN_SEP = 2600;            // metres between ports
+  var ALWAYS = ['Conwy Marina'];   // harbours that must always be a port
   var MAX_PORTS = 150;
 
   function pickPorts() {
@@ -50,6 +53,7 @@
                 (/boat ?yard|sailing club|private|proposed|slipway/i.test(h.name) ? -3 : 0);
       cands.push(h);
     });
+    cands.forEach(function (c) { if (ALWAYS.indexOf(c.name) >= 0) c.score += 100; });
     cands.sort(function (a, b) { return b.score - a.score || a.name.length - b.name.length; });
     var out = [];
     for (var i = 0; i < cands.length && out.length < MAX_PORTS; i++) {
@@ -165,20 +169,20 @@
     A.progress = onProgress || function () {};
     var t0 = Date.now();
     A.progress('Reading the tide gauges', 0.05);
-    return json(A.base + 'uk-tides.json').then(function (tides) {
+    return json(u('uk-tides.json')).then(function (tides) {
       T.load(tides);
       A.progress('Charting the United Kingdom', 0.15);
-      return Promise.all([json(A.base + 'uk-bathy.json'), png(A.base + 'uk-bathy.png')]);
+      return Promise.all([json(u('uk-bathy.json')), png(u('uk-bathy.png'))]);
     }).then(function (r) {
       var meta = r[0], im = r[1];
       meta.id = 'national';
       W.addRaster(meta, im.data);
       A.progress('Surveying the cruising grounds', 0.3);
-      return json(A.base + 'regions/index.json');
+      return json(u('regions/index.json'));
     }).then(function (idx) {
       var list = idx.regions, done = 0;
       return Promise.all(list.map(function (m) {
-        return png(A.base + 'regions/' + m.id + '.png').then(function (im) {
+        return png(u('regions/' + m.id + '.png')).then(function (im) {
           W.addRaster(m, im.data);
           done++;
           A.progress('Surveying ' + m.name, 0.3 + 0.4 * done / list.length);
@@ -186,7 +190,7 @@
       }));
     }).then(function () {
       A.progress('Laying out the buoyage', 0.75);
-      return json(A.base + 'uk-marks.json');
+      return json(u('uk-marks.json'));
     }).then(function (m) {
       W.markKinds = m.kinds;
       W.marks = m.marks.map(function (r) {

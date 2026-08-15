@@ -44,10 +44,10 @@
     };
   }
 
-  /** where a new skipper starts: a real harbour on the Solent if we have it */
+  /** where a new skipper starts: Conwy, on the North Wales coast */
   G.homePort = function () {
     var best = null, bd = Infinity;
-    var target = S.Geo.project(-1.52, 50.756);        // Lymington
+    var target = S.Geo.project(-3.83953, 53.29189);   // Conwy Marina
     W.PORTS.forEach(function (p) {
       var d = U.len(p.x - target.x, p.y - target.y);
       if (d < bd) { bd = d; best = p; }

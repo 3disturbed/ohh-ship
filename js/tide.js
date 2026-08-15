@@ -152,17 +152,17 @@
      under one in the open North Sea, and five or more in the Severn, which is
      roughly what happens. Named races are strengthened by hand below. */
   T.RACES = [
-    { n: 'Portland Race',    lon: -2.44, lat: 50.50, r: 0.10, k: 3.4 },
-    { n: 'Pentland Firth',   lon: -3.13, lat: 58.72, r: 0.22, k: 3.2 },
-    { n: 'Corryvreckan',     lon: -5.71, lat: 56.15, r: 0.05, k: 3.0 },
-    { n: 'Menai Swellies',   lon: -4.17, lat: 53.21, r: 0.04, k: 2.6 },
-    { n: 'Hurst Narrows',    lon: -1.55, lat: 50.70, r: 0.05, k: 1.9 },
-    { n: 'Alderney Race',    lon: -2.20, lat: 49.75, r: 0.18, k: 3.0 },
-    { n: 'Ramsey Sound',     lon: -5.32, lat: 51.87, r: 0.05, k: 2.4 },
+    { n: 'Portland Race',    lon: -2.44, lat: 50.51, r: 0.09, k: 7.0 },
+    { n: 'Pentland Firth',   lon: -3.13, lat: 58.72, r: 0.20, k: 15.0 },
+    { n: 'Corryvreckan',     lon: -5.71, lat: 56.15, r: 0.05, k: 8.0 },
+    { n: 'Menai Swellies',   lon: -4.17, lat: 53.21, r: 0.04, k: 6.0 },
+    { n: 'Hurst Narrows',    lon: -1.55, lat: 50.70, r: 0.05, k: 3.2 },
+    { n: 'Alderney Race',    lon: -2.20, lat: 49.75, r: 0.18, k: 6.0 },
+    { n: 'Ramsey Sound',     lon: -5.32, lat: 51.87, r: 0.05, k: 5.0 },
     { n: 'Bristol Deep',     lon: -3.00, lat: 51.45, r: 0.25, k: 1.8 },
     { n: 'Dover Strait',     lon:  1.45, lat: 51.02, r: 0.22, k: 1.5 },
-    { n: 'Kyle Rhea',        lon: -5.66, lat: 57.24, r: 0.04, k: 2.8 },
-    { n: 'Strangford Narrows', lon: -5.55, lat: 54.36, r: 0.05, k: 3.0 },
+    { n: 'Kyle Rhea',        lon: -5.66, lat: 57.24, r: 0.04, k: 6.0 },
+    { n: 'Strangford Narrows', lon: -5.55, lat: 54.36, r: 0.05, k: 6.5 },
     { n: 'Skerries',         lon: -4.60, lat: 53.42, r: 0.09, k: 2.0 }
   ];
 
@@ -187,8 +187,13 @@
     var s = T.at(lon, lat);
     if (!s) return { x: 0, y: 0 };
     var eta = T.height(lon, lat, t) - s.z0;
-    var h = Math.max(4, depth);
-    var mag = eta * Math.sqrt(9.81 / h);
+    var h = Math.max(10, depth);      // the relation runs away in the shallows
+    /* 0.5 because a real estuary is not a clean progressive wave: the
+       unscaled relation gives nearly six knots across the middle of the
+       Solent, where two and a half is the truth. The base is then capped —
+       outside the named races a British tidal stream rarely beats four
+       knots, however big the range or however thin the water. */
+    var mag = U.clamp(0.5 * eta * Math.sqrt(9.81 / h), -2.05, 2.05);
     var boost = 1;
     for (var i = 0; i < T.RACES.length; i++) {
       var r = T.RACES[i];
@@ -196,7 +201,7 @@
                          Math.pow(lat - r.lat, 2));
       if (dd < r.r) boost = Math.max(boost, 1 + (r.k - 1) * U.smooth(1 - dd / r.r));
     }
-    mag = U.clamp(mag * boost, -6, 6);
+    mag = U.clamp(mag * boost, -6.5, 6.5);
     var d = T.propDir(lon, lat);
     return { x: d.x * mag, y: d.y * mag };
   };
