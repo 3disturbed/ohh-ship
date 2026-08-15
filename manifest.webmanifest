@@ -1,0 +1,18 @@
+{
+  "name": "Ohh Ship! — Sailing Courier Simulator",
+  "short_name": "Ohh Ship!",
+  "description": "Sail a coastal courier business: wind, tide, depth, draft, ground tackle and honest navigation.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "ohh-ship",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#08141b",
+  "theme_color": "#0b1d26",
+  "categories": ["games", "education", "simulation"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

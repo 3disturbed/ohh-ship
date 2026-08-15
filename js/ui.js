@@ -433,7 +433,7 @@
     if (!show) return;
     on(el.menuClose, 'click', function () { UI.showMenu(false); });
     var p = G.player, v = G.vessel;
-    el.menuBody.innerHTML =
+    el.menuBody.innerHTML = installCard() +
       '<div class="card"><h3>Log book</h3><div class="kv">' +
         kv('Jobs completed', p.stats.jobs) + kv('Delivered late', p.stats.lateJobs) +
         kv('Earned', U.money(p.stats.earned)) + kv('Reputation', p.reputation.toFixed(0) + ' / 100') +
@@ -455,6 +455,7 @@
         'Q ground tackle · TAB change vessel<br>' +
         'C chart · H handbook · scroll or pinch to zoom' +
       '</div></div>';
+    wireInstall();
     $('mSave').onclick = function () { G.save(); UI.toast('Saved', 'Progress written to this device'); };
     $('mNew').onclick = function () {
       el.menuBody.innerHTML = '<div class="card"><h3>Start again</h3>' +
@@ -476,6 +477,59 @@
     });
   };
   function kv(k, v) { return '<span>' + k + '</span><span>' + v + '</span>'; }
+
+  /* ---- install as an app (§40 — it should live on the home screen) ---- */
+  function standalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+           window.navigator.standalone === true;
+  }
+  function isIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+  function installCard() {
+    var pwa = window.__pwa || {};
+    if (standalone() || pwa.installed) {
+      return '<div class="card tight"><h3>Installed<span class="fee">&#10003;</span></h3>' +
+        '<div class="meta">Running as an app. She works offline — the chart, the tides and your ' +
+        'save are all on this device.</div></div>';
+    }
+    if (pwa.prompt) {
+      return '<div class="card"><h3>Install<span class="fee">free</span></h3>' +
+        '<div class="meta">Put Ohh Ship! on your home screen: full screen, no browser bars, ' +
+        'and it works at sea with no signal.</div>' +
+        '<div class="row"><button class="btn primary" id="mInstall">Install app</button></div></div>';
+    }
+    if (isIOS()) {
+      return '<div class="card"><h3>Add to Home Screen</h3><div class="meta">' +
+        'In Safari, tap <b>Share</b> &#8593; then <b>Add to Home Screen</b>. ' +
+        'She then runs full screen and works offline.</div></div>';
+    }
+    return '<div class="card tight"><h3>Install</h3><div class="meta">' +
+      'Your browser has not offered an install yet. In Chrome or Edge look for the install icon ' +
+      'in the address bar, or the menu&rsquo;s <b>Install</b> item.</div></div>';
+  }
+  function wireInstall() {
+    var b = $('mInstall');
+    if (!b) return;
+    b.onclick = function () {
+      var pwa = window.__pwa || {};
+      if (!pwa.prompt) return;
+      b.disabled = true;
+      pwa.prompt.prompt();
+      pwa.prompt.userChoice.then(function (r) {
+        if (r && r.outcome === 'accepted') {
+          pwa.installed = true; pwa.prompt = null;
+          UI.toast('Installed', 'Ohh Ship! is on your home screen');
+        } else b.disabled = false;
+        UI.pwaChanged();
+      });
+    };
+  }
+  /** the install state changed under us — redraw the menu if it is open */
+  UI.pwaChanged = function () {
+    if (!el.menuView.classList.contains('hidden')) UI.showMenu(true);
+  };
   function toggleRow(id, label, on) {
     return '<div class="row"><button class="btn ' + (on ? 'primary' : '') + '" data-toggle="' + id + '">' +
       (on ? 'On' : 'Off') + '</button><span class="meta">' + label + '</span></div>';
