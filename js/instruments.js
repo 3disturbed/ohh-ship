@@ -90,11 +90,12 @@
     /* lubber line and digital heading */
     ctx.strokeStyle = ACC; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, -r - 7); ctx.lineTo(0, -r + 5); ctx.stroke();
-    ctx.fillStyle = INK; ctx.font = '600 15px ui-monospace,Menlo,monospace';
+    var fs = U.clamp(size * 0.135, 11, 15);
+    ctx.fillStyle = INK; ctx.font = '600 ' + fs.toFixed(0) + 'px ui-monospace,Menlo,monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(U.brgStr(v.hdg), 0, 1);
     ctx.fillStyle = DIM; ctx.font = '8px ui-monospace,Menlo,monospace';
-    ctx.fillText('HDG', 0, 14);
+    ctx.fillText('HDG', 0, fs + 1);
     ctx.restore();
     zones.push({ id: 'compass', x: x, y: y, w: size, h: size });
   }
@@ -149,11 +150,12 @@
       ctx.stroke();
     }
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var wfs = U.clamp(size * 0.118, 9, 13);
     if (known) {
-      ctx.fillStyle = INK; ctx.font = '600 13px ui-monospace,Menlo,monospace';
+      ctx.fillStyle = INK; ctx.font = '600 ' + wfs.toFixed(0) + 'px ui-monospace,Menlo,monospace';
       ctx.fillText(Math.round(Math.abs(v.awa)) + '°' + (v.awa >= 0 ? 'S' : 'P'), 0, -2);
-      ctx.fillStyle = ACC; ctx.font = '600 11px ui-monospace,Menlo,monospace';
-      ctx.fillText((v.aws * U.MS2KN).toFixed(1) + 'kn', 0, 12);
+      ctx.fillStyle = ACC; ctx.font = '600 ' + (wfs - 2).toFixed(0) + 'px ui-monospace,Menlo,monospace';
+      ctx.fillText((v.aws * U.MS2KN).toFixed(1) + 'kn', 0, wfs);
     } else {
       ctx.fillStyle = DIM; ctx.font = '8px ui-monospace,Menlo,monospace';
       ctx.fillText('BURGEE', 0, 2);
@@ -166,82 +168,84 @@
   /* ---------- digital cells ----------
      Layout: label top-left, big value bottom-left, two small lines on the
      right, and a bar pinned to the bottom edge. */
+  var SMALL = false;      // set per frame from the cell size
   function cell(x, y, w, h, id) {
     frameBox(x, y, w, h);
     zones.push({ id: id, x: x, y: y, w: w, h: h });
-    return { bx: x + 7, by: y + h - 15, rx: x + w - 7, r1: y + h - 28, r2: y + h - 16,
-             barX: x + 7, barY: y + h - 9, barW: w - 14 };
+    SMALL = (w < 122 || h < 60);
+    var pad = SMALL ? 5 : 7;
+    return SMALL
+      ? { bx: x + pad, by: y + h - 11, rx: x + w - pad, r1: y + h - 22, r2: y + h - 11,
+          barX: x + pad, barY: y + h - 6, barW: w - pad * 2, big: 16, two: false }
+      : { bx: x + pad, by: y + h - 14, rx: x + w - pad, r1: y + h - 27, r2: y + h - 15,
+          barX: x + pad, barY: y + h - 8, barW: w - pad * 2, big: 19, two: true };
   }
   function right(text, x, y, col, weight) {
     ctx.fillStyle = col || DIM;
-    ctx.font = (weight || '') + ' 9.5px ui-monospace,Menlo,monospace';
+    ctx.font = (weight || '') + ' ' + (SMALL ? 8.5 : 9.5) + 'px ui-monospace,Menlo,monospace';
     ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
     ctx.fillText(text, x, y);
   }
   function bar(c, frac, col) {
-    ctx.fillStyle = '#08171f'; ctx.fillRect(c.barX, c.barY, c.barW, 4);
+    ctx.fillStyle = '#08171f'; ctx.fillRect(c.barX, c.barY, c.barW, 3);
     ctx.fillStyle = col;
-    ctx.fillRect(c.barX, c.barY, c.barW * U.clamp(frac, 0, 1), 4);
+    ctx.fillRect(c.barX, c.barY, c.barW * U.clamp(frac, 0, 1), 3);
   }
 
   function cellDepth(x, y, w, h, v) {
     var c = cell(x, y, w, h, 'ukc');
-    label('DEPTH  m', x + 7, y + 5);
+    label('DEPTH m', x + 6, y + 4);
     var warn = v.ukc < 0.8, bad = v.ukc <= 0;
-    big(v.depth > 40 ? '--' : v.depth.toFixed(1), c.bx, c.by, 19, bad ? BAD : warn ? ACC : INK);
-    right('UKC ' + (v.ukc > 40 ? '--' : v.ukc.toFixed(1)), c.rx, c.r1, bad ? BAD : warn ? ACC : INK, '600');
-    right('draft ' + v.draft().toFixed(2), c.rx, c.r2);
+    var col = bad ? BAD : warn ? ACC : INK;
+    big(v.depth > 40 ? '--' : v.depth.toFixed(1), c.bx, c.by, c.big, col);
+    right('UKC ' + (v.ukc > 40 ? '--' : v.ukc.toFixed(1)), c.rx, c.r1, col, '600');
+    if (c.two) right('draft ' + v.draft().toFixed(2), c.rx, c.r2);
     bar(c, v.ukc / 4, bad ? BAD : warn ? ACC : CY);
   }
   function cellSpeed(x, y, w, h, v) {
     var c = cell(x, y, w, h, 'speed');
-    label('SPEED  kn', x + 7, y + 5);
-    big((v.stw * U.MS2KN).toFixed(1), c.bx, c.by, 19, INK);
-    ctx.fillStyle = DIM; ctx.font = '9px ui-monospace,Menlo,monospace';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText('STW', c.bx + 40, c.by);
+    label('SPEED kn', x + 6, y + 4);
+    big((v.stw * U.MS2KN).toFixed(1), c.bx, c.by, c.big, INK);
     if (v.has('gps')) {
       right((v.sog * U.MS2KN).toFixed(1) + ' SOG', c.rx, c.r1, CY, '600');
-      right('COG ' + U.brgStr(v.cog), c.rx, c.r2);
+      if (c.two) right('COG ' + U.brgStr(v.cog), c.rx, c.r2);
     } else {
-      right('hull ' + v.hullSpeedKn.toFixed(1) + ' kn', c.rx, c.r1);
-      right('log ' + (v.log / U.NM).toFixed(1) + ' NM', c.rx, c.r2);
+      right('STW · hull ' + v.hullSpeedKn.toFixed(1), c.rx, c.r1);
+      if (c.two) right('log ' + (v.log / U.NM).toFixed(1) + ' NM', c.rx, c.r2);
     }
     bar(c, (v.stw * U.MS2KN) / v.hullSpeedKn, (v.stw * U.MS2KN) > v.hullSpeedKn * 0.94 ? ACC : CY);
   }
   function cellEngine(x, y, w, h, v) {
     var c = cell(x, y, w, h, 'fuel');
-    label('FUEL  L', x + 7, y + 5);
+    label('FUEL L', x + 6, y + 4);
     var pct = v.fuel / v.fuelCapacity();
-    big(v.fuel.toFixed(1), c.bx, c.by, 19, pct < 0.15 ? BAD : pct < 0.3 ? ACC : INK);
+    var col = pct < 0.15 ? BAD : pct < 0.3 ? ACC : INK;
+    big(v.fuel.toFixed(1), c.bx, c.by, c.big, col);
     if (v.engine.running) {
-      right(Math.round(v.engine.rpm) + ' rpm', c.rx, c.r1, INK, '600');
-      var re = v.rangeEstimate();
-      right(re.lph.toFixed(1) + ' L/h · ' + Math.round(v.engine.temp) + '°C',
-            c.rx, c.r2, v.engine.temp > 98 ? BAD : DIM);
+      right(Math.round(v.engine.rpm) + ' rpm', c.rx, c.r1, v.engine.temp > 98 ? BAD : INK, '600');
+      if (c.two) right(v.rangeEstimate().lph.toFixed(1) + ' L/h · ' + Math.round(v.engine.temp) + '°C', c.rx, c.r2);
     } else {
       right('engine off', c.rx, c.r1);
-      right(v.cargo.length ? v.cargo.length + ' in the hold' : 'hold empty', c.rx, c.r2);
+      if (c.two) right(v.cargo.length ? v.cargo.length + ' in hold' : 'hold empty', c.rx, c.r2);
     }
     bar(c, pct, pct < 0.15 ? BAD : pct < 0.3 ? ACC : CY);
   }
   function cellTide(x, y, w, h, v) {
     var c = cell(x, y, w, h, 'tide');
     var ti = E.tideInfo(v.x, v.y);
-    label('TIDE  m', x + 7, y + 5);
-    big(ti.height.toFixed(2), c.bx, c.by, 19, INK);
+    label('TIDE m', x + 6, y + 4);
+    big(ti.height.toFixed(2), c.bx, c.by, c.big, INK);
     ctx.fillStyle = ti.rising ? CY : ACC;
-    ctx.font = '600 12px ui-monospace,Menlo,monospace';
+    ctx.font = '600 ' + (c.big - 5) + 'px ui-monospace,Menlo,monospace';
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(ti.rising ? '\u25b2' : '\u25bc', c.bx + 44, c.by);
+    ctx.fillText(ti.rising ? '\u25b2' : '\u25bc', c.bx + c.big * 2.5, c.by);
     if (v.has('almanac')) {
-      right('HW ' + U.hhmm(ti.nextHW) + '  ' + ti.nextHWHeight.toFixed(1), c.rx, c.r1);
-      right('LW ' + U.hhmm(ti.nextLW) + '  ' + ti.nextLWHeight.toFixed(1), c.rx, c.r2);
+      right('HW ' + U.hhmm(ti.nextHW), c.rx, c.r1);
+      if (c.two) right('LW ' + U.hhmm(ti.nextLW) + ' ' + ti.nextLWHeight.toFixed(1), c.rx, c.r2);
     } else {
       right(ti.rising ? 'flooding' : 'ebbing', c.rx, c.r1);
-      right((Math.abs(ti.rate) * 60).toFixed(1) + ' m/h', c.rx, c.r2);
+      if (c.two) right((Math.abs(ti.rate) * 60).toFixed(1) + ' m/h', c.rx, c.r2);
     }
-    /* where we are between low and high water */
     bar(c, (ti.height - (E.MSL - ti.range / 2)) / ti.range, ti.rising ? CY : ACC);
   }
 
@@ -252,9 +256,11 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#091820'; ctx.fillRect(0, 0, cw, ch);
 
-    var dialSize = Math.min(ch, 112);
+    /* Dials take a share of the width, never a fixed size, so the digital
+       cells always have room to be legible on a phone. */
     var gap = 4;
-    var dials = cw > 430 ? 2 : (cw > 320 ? 2 : 1);
+    var dials = cw > 300 ? 2 : 1;
+    var dialSize = Math.min(ch, Math.max(64, cw * (dials === 2 ? 0.235 : 0.30)));
     var dx = 2;
     compass(dx, (ch - dialSize) / 2, dialSize, v, wpBrg);
     dx += dialSize + gap;

@@ -229,16 +229,50 @@
        get out of irons, and exactly how a gybe hurts. */
     var windSide = this.awa >= 0 ? 1 : -1;
     var aAbs = Math.abs(this.awa);
-    /* Which side the boom lies on is a latched state, not a calculation.
-       It crosses only when the wind is properly on the other side: through a
-       tack it stays backed until she is round, and on a run it stays put until
-       you sail far enough by the lee to gybe it. */
-    if (this.boomSide === undefined) this.boomSide = this.boomAngle >= 0 ? 1 : -1;
-    if (aAbs > 4 && aAbs < 168) this.boomSide = -windSide;
-    var leeSide = this.boomSide;
+    var lee = -windSide;
+    /* The sheets are a signed command: where you want the boom, port or
+       starboard, anywhere through 170 degrees. When the wind crosses from one
+       bow to the other they are handed across for you, keeping however much
+       you had eased — but a boom you have deliberately set to windward stays
+       there, backed, until the wind really does cross. */
+    if (this._lastLee === undefined) this._lastLee = lee;
+    if (aAbs > 4 && aAbs < 168) {
+      if (this._lastLee !== lee) {              // the wind really has crossed
+        this.mainSheet = lee * Math.abs(this.mainSheet);
+        this.jibSheet = lee * Math.abs(this.jibSheet);
+        this.sheetsHanded = true;               // tells the UI to move the sliders
+      }
+      this._lastLee = lee;
+    }
+    this.boomSide = this.mainSheet >= 0 ? 1 : -1;
     var swing = 34 + 80 * U.clamp(this.aws / 8, 0, 1.7);        // degrees per second
-    this.boomAngle = U.approach(this.boomAngle, leeSide * this.mainSheet, swing, dt);
-    this.jibAngle = U.approach(this.jibAngle, leeSide * this.jibSheet, swing * 1.9, dt);
+    /* the boom swings across above the coachroof */
+    this.boomAngle = U.approach(this.boomAngle, this.mainSheet, swing, dt);
+
+    /* A headsail cannot pass through the mast and rigging. To put it on the
+       other side it has to come in first, so the crew roll it away, hand the
+       sheets across, and set it again — and you are without a headsail while
+       they do it. */
+    var jibCmdSide = this.jibSheet >= 0 ? 1 : -1;
+    var jibNowSide = this.jibAngle >= 0 ? 1 : -1;
+    if (jibCmdSide !== jibNowSide && this.jibOut > 0.02 && !this._jibSwap) {
+      this._jibSwap = { want: this._furlTo !== undefined ? this._furlTo : this.jibOut, phase: 'in' };
+      delete this._furlTo;
+    }
+    if (this._jibSwap) {
+      var frate = this.has('furler') ? 0.85 : 0.42;             // roller gear is quicker
+      if (this._jibSwap.phase === 'in') {
+        this.jibOut = Math.max(0, this.jibOut - frate * dt);
+        if (this.jibOut <= 0.002) { this.jibOut = 0; this.jibAngle = this.jibSheet; this._jibSwap.phase = 'out'; }
+      } else {
+        this.jibOut = Math.min(this._jibSwap.want, this.jibOut + frate * dt);
+        if (this.jibOut >= this._jibSwap.want - 0.002) { this.jibOut = this._jibSwap.want; this._jibSwap = null; }
+      }
+    } else if (this.jibOut <= 0.02) {
+      this.jibAngle = this.jibSheet;                            // furled: free to reset either side
+    } else {
+      this.jibAngle = U.approach(this.jibAngle, this.jibSheet, swing * 1.9, dt);
+    }
 
     var area = this.sailArea();
     var q = 0.5 * U.RHO_AIR * this.aws * this.aws;
@@ -453,7 +487,7 @@
       this.mainHoist = U.approach(this.mainHoist, this._hoistTo, 1 / HOIST_TIME, dt);
       if (this.mainHoist === this._hoistTo) delete this._hoistTo;
     }
-    if (this._furlTo !== undefined) {
+    if (this._furlTo !== undefined && !this._jibSwap) {
       this.jibOut = U.approach(this.jibOut, this._furlTo, 1 / FURL_TIME, dt);
       if (this.jibOut === this._furlTo) delete this._furlTo;
     }
@@ -564,8 +598,8 @@
     if (!isFinite(this.log)) this.log = 0;
     this.mainHoist = U.clamp(this.mainHoist || 0, 0, 1);
     this.jibOut = U.clamp(this.jibOut || 0, 0, 1);
-    this.mainSheet = U.clamp(this.mainSheet || 55, 0, 85);
-    this.jibSheet = U.clamp(this.jibSheet || 55, 0, 85);
+    this.mainSheet = U.clamp(this.mainSheet || -55, -85, 85);
+    this.jibSheet = U.clamp(this.jibSheet || -55, -85, 85);
     this.engine.rpm = 0; this.engine.throttle = 0; this.engine.running = false;
     for (k in this.damage) if (!isFinite(this.damage[k])) this.damage[k] = 0;
     this.anchor = { down: false, x: 0, y: 0, veer: 0, set: 0, dragging: 0, tension: 0, weighing: 0, depth: 0 };
@@ -741,8 +775,8 @@
       v.mainHoist = U.clamp(num(o.sails.hoist, 0), 0, 1);
       v.mainReef = U.clamp(num(o.sails.reef, 0), 0, v.spec.reefs);
       v.jibOut = U.clamp(num(o.sails.jib, 0), 0, 1);
-      v.mainSheet = U.clamp(num(o.sails.ms, 55), 0, 85);
-      v.jibSheet = U.clamp(num(o.sails.js, 55), 0, 85);
+      v.mainSheet = U.clamp(num(o.sails.ms, -55), -85, 85);
+      v.jibSheet = U.clamp(num(o.sails.js, -55), -85, 85);
     }
     return v;
   };

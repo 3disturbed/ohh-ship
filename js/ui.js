@@ -196,12 +196,18 @@
     el.btnRate.textContent = G.rate + '×';
 
     /* deck labels */
+    if (v.sheetsHanded) {
+      v.sheetsHanded = false;
+      el.sheetMain.value = Math.round(v.mainSheet);
+      el.sheetJib.value = Math.round(v.jibSheet);
+    }
     var side = function (a) { return a > 2 ? ' stbd' : a < -2 ? ' port' : ' mid'; };
     el.lblMain.textContent = (v.mainHoist < 0.05 ? 'stowed' :
       (v.mainHoist < 0.99 ? Math.round(v.mainHoist * 100) + '%' : (v.mainReef ? 'reef ' + v.mainReef : 'full'))) +
-      (v.mainHoist > 0.05 ? side(v.boomAngle) : '');
-    el.lblJib.textContent = (v.jibOut < 0.05 ? 'furled' : Math.round(v.jibOut * 100) + '%') +
-      (v.jibOut > 0.05 ? side(v.jibAngle) : '');
+      (v.mainHoist > 0.05 ? ' ' + Math.abs(Math.round(v.boomAngle)) + '\u00b0' + side(v.boomAngle) : '');
+    el.lblJib.textContent = v._jibSwap ? 'crossing…'
+      : (v.jibOut < 0.05 ? 'furled' : Math.round(v.jibOut * 100) + '%') +
+        (v.jibOut > 0.05 ? ' ' + Math.abs(Math.round(v.jibAngle)) + '\u00b0' + side(v.jibAngle) : '');
     el.lblRpm.textContent = v.engine.running ? Math.round(v.engine.rpm) + '  ' +
       (v.engine.gear > 0 ? 'ahd' : v.engine.gear < 0 ? 'ast' : 'neu') : 'off';
     el.lblHelm.textContent = v.moored ? 'alongside'
@@ -378,7 +384,8 @@
       }
     }
     if (!v.has('gps')) out.push(player.everFixed ? 'DR only — fix your position' : 'No fix yet');
-    el.chartReadout.innerHTML = out.join('<br>') || '&nbsp;';
+    el.chartReadout.innerHTML = out.join('<br>');
+    el.chartReadout.style.display = out.length ? '' : 'none';
   };
   function bearingToWp() {
     var v = G.vessel, known = v.has('gps');
@@ -945,8 +952,8 @@
   };
 
   UI.syncControls = function (v) {
-    el.sheetMain.value = v.mainSheet;
-    el.sheetJib.value = v.jibSheet;
+    el.sheetMain.value = Math.round(v.mainSheet);
+    el.sheetJib.value = Math.round(v.jibSheet);
     el.throttle.value = Math.round(v.engine.throttle * 100);
     Array.prototype.forEach.call(document.querySelectorAll('.gear'), function (o) {
       o.classList.toggle('on', +o.dataset.gear === v.engine.gear);

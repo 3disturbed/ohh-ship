@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b1d26">
 <title>Ohh Ship! — Sailing Courier Simulator</title>
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
 
@@ -53,24 +53,26 @@
   <div id="deck">
 
     <div class="deck-col deck-sails">
-      <div class="deck-label">Main <span id="lblMain" class="val">—</span></div>
-      <div class="sheet-row">
-        <div class="vsl-wrap"><input id="sheetMain" class="vsl" type="range" min="0" max="85" step="1" value="80"></div>
-        <div class="sheet-btns">
-          <button id="btnHoist" class="mini">Hoist</button>
-          <button id="btnReef" class="mini">Reef 0</button>
-        </div>
+      <div class="deck-label">Main <span id="lblMain" class="val">&mdash;</span></div>
+      <div class="hsl-wrap">
+        <input id="sheetMain" class="hsl" type="range" min="-85" max="85" step="1" value="-55">
+        <div class="hsl-scale"><span>P</span><span>in</span><span>S</span></div>
+      </div>
+      <div class="sheet-btns row2">
+        <button id="btnHoist" class="mini">Hoist</button>
+        <button id="btnReef" class="mini">Reef 0</button>
       </div>
     </div>
 
     <div class="deck-col deck-sails">
-      <div class="deck-label">Jib <span id="lblJib" class="val">—</span></div>
-      <div class="sheet-row">
-        <div class="vsl-wrap"><input id="sheetJib" class="vsl" type="range" min="0" max="85" step="1" value="80"></div>
-        <div class="sheet-btns">
-          <button id="btnFurl" class="mini">Unfurl</button>
-          <button id="btnTack" class="mini">Tack</button>
-        </div>
+      <div class="deck-label">Jib <span id="lblJib" class="val">&mdash;</span></div>
+      <div class="hsl-wrap">
+        <input id="sheetJib" class="hsl" type="range" min="-85" max="85" step="1" value="-55">
+        <div class="hsl-scale"><span>P</span><span>in</span><span>S</span></div>
+      </div>
+      <div class="sheet-btns row2">
+        <button id="btnFurl" class="mini">Unfurl</button>
+        <button id="btnTack" class="mini">Tack</button>
       </div>
     </div>
 
@@ -160,17 +162,17 @@
   </div>
 </div>
 
-<script src="js/util.js"></script>
-<script src="js/data.js"></script>
-<script src="js/world.js"></script>
-<script src="js/environment.js"></script>
-<script src="js/vessel.js"></script>
-<script src="js/economy.js"></script>
-<script src="js/education.js"></script>
-<script src="js/render.js"></script>
-<script src="js/chart.js"></script>
-<script src="js/instruments.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/game.js"></script>
+<script src="js/util.js?v=4"></script>
+<script src="js/data.js?v=4"></script>
+<script src="js/world.js?v=4"></script>
+<script src="js/environment.js?v=4"></script>
+<script src="js/vessel.js?v=4"></script>
+<script src="js/economy.js?v=4"></script>
+<script src="js/education.js?v=4"></script>
+<script src="js/render.js?v=4"></script>
+<script src="js/chart.js?v=4"></script>
+<script src="js/instruments.js?v=4"></script>
+<script src="js/ui.js?v=4"></script>
+<script src="js/game.js?v=4"></script>
 </body>
 </html>
