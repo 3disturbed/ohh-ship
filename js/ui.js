@@ -266,10 +266,14 @@
     el.tillerKnob.style.marginLeft = (kx * (el.tillerTrack.clientWidth - 42) - el.tillerTrack.clientWidth / 2) + 'px';
 
     /* the rest button only appears when she is going nowhere */
-    el.btnSkip.classList.toggle('hidden', !G.canWait());
-    /* the tide curve creeps left as time passes at anchor */
-    if (!el.tidePanel.classList.contains('hidden') && Math.abs(E.t - waveDrawnAt) > 30)
-      drawWave();
+    var canWait = G.canWait();
+    el.btnSkip.classList.toggle('hidden', !canWait);
+    /* the tide curve creeps left as time passes at anchor; the skip
+       controls come and go with her freedom to wait */
+    if (!el.tidePanel.classList.contains('hidden')) {
+      if (canWait !== waveCanWait) UI.renderTideWait();
+      else if (Math.abs(E.t - waveDrawnAt) > 30) drawWave();
+    }
 
     /* ground tackle and fleet buttons */
     el.btnAnchor.classList.toggle('on', v.anchor.down);
@@ -1050,6 +1054,7 @@
   var WAVE_SPAN = 25 * 3600;      // drawn window; G.timeSkip itself caps at 26 h
   var waveSel = null;             // chosen moment, absolute game seconds
   var waveDrawnAt = -1;           // E.t at the last canvas redraw
+  var waveCanWait = null;         // canWait() when the panel was last built
 
   UI.toggleTideWait = function () {
     var open = el.tidePanel.classList.contains('hidden');
@@ -1062,6 +1067,7 @@
   UI.renderTideWait = function () {
     if (el.tidePanel.classList.contains('hidden')) return;
     var v = G.vessel, ti = E.tideInfo(v.x, v.y);
+    waveCanWait = G.canWait();
     var h = '<h4>Wait for the tide<span class="meta">time passes honestly</span></h4>';
     h += '<canvas id="tideWave" class="tide-wave"></canvas>';
     h += '<div class="kv">' +

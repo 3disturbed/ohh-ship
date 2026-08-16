@@ -61,10 +61,23 @@
     var start = G.STARTS.filter(function (x) { return x.id === startId; })[0] || G.STARTS[1];
     G.startChoice = start.id;
     G.player = blankPlayer(start);
-    E.t = 6.2 * 3600;
     var home = G.homePort();
+    /* the home gate is tidal now, so start in daylight on a rising tide with
+       high water about ninety minutes ahead — the whole window before her */
+    E.t = 6.2 * 3600;
+    var hg = S.Geo.unproject(home.x, home.y);
+    for (var st = 8 * 3600; st < 6 * 86400; st += 600) {
+      var hod = (st / 3600) % 24;
+      if (hod < 9 || hod > 16) continue;
+      var hw = st + 5400;
+      if (S.Tide.height(hg.lon, hg.lat, hw) > S.Tide.height(hg.lon, hg.lat, hw - 600) &&
+          S.Tide.height(hg.lon, hg.lat, hw) >= S.Tide.height(hg.lon, hg.lat, hw + 600)) {
+        E.t = st;
+        break;
+      }
+    }
     var v = new S.Vessel('centaur');
-    v.hdg = U.rad(180);
+    v.hdg = home.hdg !== undefined ? U.rad(home.hdg) : U.rad(180);
     v.mooredTo(home.x, home.y);
     v.dr.x = home.x; v.dr.y = home.y;
     v.fuel = v.fuelCapacity() * 0.45;
@@ -145,7 +158,17 @@
       G.setActive(G.active, true);
       if (s.settings) G.settings = s.settings;
       if (!G.settings.assist) G.settings.assist = 'standard';
-      if (s.atPort) UI.showPort(W.port(s.atPort), null);
+      /* ports can move or go between data versions: drop contracts whose
+         harbour no longer exists, and any cargo those contracts covered */
+      G.player.contracts = (G.player.contracts || []).filter(function (c) {
+        return W.port(c.origin) && W.port(c.dest);
+      });
+      var live = {};
+      G.player.contracts.forEach(function (c) { live[c.id] = 1; });
+      G.fleet.forEach(function (vv) {
+        vv.cargo = (vv.cargo || []).filter(function (it) { return !it.contract || live[it.contract]; });
+      });
+      if (s.atPort && W.port(s.atPort)) UI.showPort(W.port(s.atPort), null);
       return true;
     } catch (e) { return false; }
   };

@@ -1,5 +1,5 @@
 /* sw.js — offline cache. Bump ASSET_V here and in index.html together. */
-var ASSET_V = '12';
+var ASSET_V = '13';
 var CACHE = 'ohh-ship-v' + ASSET_V;
 var ASSETS = [
   './',
@@ -14,6 +14,7 @@ var ASSETS = [
   './data/uk-bathy.png',
   './data/uk-tides.json',
   './data/uk-marks.json',
+  './data/uk-ports.json',
   './data/regions/index.json',
   './data/regions/solent.png',
   './data/regions/poole.png',

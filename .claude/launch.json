@@ -20,6 +20,16 @@
         "8791"
       ],
       "port": 8791
+    },
+    {
+      "name": "ohh-ship-c",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8803"
+      ],
+      "port": 8803
     }
   ]
 }

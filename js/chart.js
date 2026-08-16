@@ -118,6 +118,55 @@
     });
   }
 
+  /** dredged channels, drawn as charts draw them: dashed limits and a depth.
+      Berth pools are two-point stubs and are skipped. */
+  function drawChannels() {
+    if (C.cam.scale < 0.006) return;
+    var g0 = C.toWorld(0, 0), g1 = C.toWorld(cw, ch);
+    ctx.save();
+    ctx.setLineDash([7, 5]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(58,102,130,0.75)';
+    for (var i = 0; i < W.CHANNELS.length; i++) {
+      var c = W.CHANNELS[i];
+      if (c.pts.length < 3) continue;
+      var xy = c.xy;
+      if (!xy) {
+        xy = c.xy = c.pts.map(function (p) {
+          var q = S.Geo.project(p[0], p[1]); return [q.x, q.y];
+        });
+      }
+      var vis = false;
+      for (var k = 0; k < xy.length && !vis; k++)
+        vis = xy[k][0] > g0.x - 2500 && xy[k][0] < g1.x + 2500 &&
+              xy[k][1] > g0.y - 2500 && xy[k][1] < g1.y + 2500;
+      if (!vis) continue;
+      /* the two channel limits, offset by the half-width */
+      for (var side = -1; side <= 1; side += 2) {
+        ctx.beginPath();
+        for (var k2 = 0; k2 < xy.length; k2++) {
+          var a = xy[Math.max(0, k2 - 1)], b = xy[Math.min(xy.length - 1, k2 + 1)];
+          var dx = b[0] - a[0], dy = b[1] - a[1], m = Math.sqrt(dx * dx + dy * dy) || 1;
+          var px2 = sx(xy[k2][0] + side * (dy / m) * c.hw);
+          var py2 = sy(xy[k2][1] - side * (dx / m) * c.hw);
+          if (k2 === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+        }
+        ctx.stroke();
+      }
+      if (C.cam.scale > 0.02) {
+        var mid = xy[Math.floor(xy.length / 2)];
+        ctx.setLineDash([]);
+        ctx.font = 'italic 10px ui-monospace,Menlo,monospace';
+        ctx.fillStyle = 'rgba(58,102,130,0.9)';
+        ctx.textAlign = 'center';
+        ctx.fillText(c.depth < 0 ? 'dries ' + (-c.depth).toFixed(1) + 'm' : c.depth.toFixed(1) + 'm',
+                     sx(mid[0]), sy(mid[1]) - 6);
+        ctx.setLineDash([7, 5]);
+      }
+    }
+    ctx.restore();
+  }
+
   /* ---------- transforms ---------- */
   function sx(x) { return (x - C.cam.x) * C.cam.scale + cw / 2; }
   function sy(y) { return (y - C.cam.y) * C.cam.scale + ch / 2; }
@@ -290,7 +339,7 @@
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(baseCv, 0, 0, cw, ch);
     drawContours();
-
+    drawChannels();
     drawSoundings();
     if (C.showStream) drawStream();
     drawMarks();

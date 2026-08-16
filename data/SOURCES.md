@@ -58,10 +58,25 @@ predicted heights and times here are a model, not a prediction.
 > Contains Environment Agency data © Environment Agency and database right,
 > Open Government Licence v3.0.
 
-## Carved channels
+## Ports, carved channels and synthetic buoyage — `uk-ports.json`
 
 The 1 km national grid, and even the ~115 m source, cannot resolve the narrow
-drying channels that many small harbours sit behind. Where a harbour would
-otherwise be unreachable, the approach channel is carved back in using
-published charted depths, and is recorded in `tools/channels.json` so it is
-obvious which parts of the seabed are surveyed and which are not.
+drying channels that many small harbours sit behind. Which harbours become
+ports, the route each one has to open water, the channels carved back in
+where the survey is too coarse, and the lateral buoyage that marks them are
+all baked offline by `node tools/bake_ports.js` into `data/uk-ports.json`,
+from the committed bathymetry, tide fits and OSM harbour points.
+
+The tool routes every port to Atlantic-connected open water over the real
+bathymetry, carves only what the route needs, records each port's `gate` as
+the walked minimum charted depth along its own route, and proves — against
+the game's own tide model — that the deepest boat in the fleet gets a
+continuous access window of at least two hours in every tidal cycle, even at
+the worst neaps. Harbours with no viable route are moved a short way to
+water (recorded under `moved`) or dropped (listed under `dropped` with a
+reason). `node tools/bake_ports.js --check` re-validates the committed file
+and exits non-zero on any failure.
+
+The port list and buoyage are derived from OpenStreetMap data (ODbL 1.0);
+the routes, channel depths and buoy positions are invented for play.
+NOT FOR NAVIGATION.
