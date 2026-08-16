@@ -346,6 +346,27 @@
       ctx.fillText(b.spec.name, fx, fy + 16);
     });
 
+    /* day-charter bays: the circle the guests want to swing in */
+    if (player && player.contracts) player.contracts.forEach(function (c) {
+      if (!c.tour) return;
+      var tx = sx(c.tour.x), ty = sy(c.tour.y), tr = c.tour.r * C.cam.scale;
+      ctx.strokeStyle = c.tour.done ? 'rgba(30,120,60,.8)' : 'rgba(142,47,142,.8)';
+      ctx.setLineDash([6, 5]); ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(tx, ty, Math.max(6, tr), 0, U.TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      /* their time at anchor, as a filling arc */
+      if (c.tour.stayed > 0 && !c.tour.done) {
+        ctx.strokeStyle = 'rgba(142,47,142,.9)'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(tx, ty, Math.max(6, tr), -Math.PI / 2,
+          -Math.PI / 2 + U.TAU * Math.min(1, c.tour.stayed / c.tour.staySec));
+        ctx.stroke();
+      }
+      ctx.fillStyle = c.tour.done ? '#1e783c' : '#8e2f8e';
+      ctx.font = '9px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center';
+      ctx.fillText(c.tour.done ? 'homeward' : 'guests: anchor here', tx, ty - Math.max(6, tr) - 4);
+    });
+
     /* waypoint and the leg to it */
     var wpt = C.wp();
     if (wpt) {

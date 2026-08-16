@@ -15,14 +15,22 @@
 
   UI.init = function (game) {
     G = game;
-    ['topbar','tbClock','tbMoney','tbWind','tbTide','btnRate','btnChart','btnBook','btnMenu',
+    ['topbar','tbClock','tbMoney','tbWind','tbTide','btnRate','btnSkip','btnChart','btnBook','btnMenu',
      'alerts','toasts','btnMoor','cargoTag','deck','sheetMain','sheetJib','throttle','lblMain',
      'lblJib','lblRpm','lblHelm','btnHoist','btnReef','btnFurl','btnTack','btnStart','btnPilot',
      'tillerTrack','tillerKnob','chartView','chartCanvas','chartClose','chartFollow','chartTide',
      'chartMeasure','chartRoute','chartClear','chartInfo','chartReadout','portView','portName',
      'portSub','portClose','portTabs','portBody','bookView','bookClose','bookList','bookPage',
      'bookSub','menuView','menuClose','menuBody','world','instruments',
-     'btnAnchor','btnFleet','anchorPanel','fleetPanel'].forEach(function (id) { el[id] = $(id); });
+     'btnAnchor','btnFleet','btnCoach','anchorPanel','fleetPanel','coachPanel','tidePanel'].forEach(function (id) { el[id] = $(id); });
+
+    /* the green "good sheet" band inside each slider */
+    ['sheetMain', 'sheetJib'].forEach(function (id) {
+      var band = document.createElement('div');
+      band.className = 'hsl-band hidden';
+      el[id].parentNode.appendChild(band);
+      el[id === 'sheetMain' ? 'bandMain' : 'bandJib'] = band;
+    });
 
     bindDeck();
     bindTiller();
@@ -64,8 +72,15 @@
          which always reads closer to the bow than the wind really is */
       if (b.sailArea().total < 0.5) { UI.toast('Helm', 'No sail set — nothing to tack'); return; }
       var through = Math.abs(b.awa) > 90;
-      G.autoTack = { target: U.wrap(2 * b.twd - b.hdg), gybe: through };
-      UI.toast('Helm', through ? 'Gybe-oh — heads down' : 'Lee-oh');
+      if (!through && b.stw < b.hullSpeed * 0.35) {
+        UI.toast('Helm', 'Not enough way on to tack — bear away, let her build speed, then try');
+        S.Edu.unlock(G.player, 'tacking', UI);
+        return;
+      }
+      G.autoTack = { target: U.wrap(2 * b.twd - b.hdg), gybe: through,
+                     phase: through ? 'centre' : 'turn',
+                     savedMain: b.mainSheet, savedJib: b.jibSheet };
+      UI.toast('Helm', through ? 'Gybe-oh — sheeting the main home first' : 'Lee-oh');
     });
     on(el.btnStart, 'click', function () {
       var b = v();
@@ -82,14 +97,24 @@
       });
     });
     on(el.btnPilot, 'click', function () {
-      var b = v();
+      var b = v(), ap = b.autopilot;
       if (!b.has('autopilot')) return;
-      if (b.autopilot.on) { b.autopilot.on = false; }
-      else if (b.waypoint) { b.autopilot.on = true; b.autopilot.mode = 'wpt'; }
-      else { b.autopilot.on = true; b.autopilot.mode = 'hdg'; b.autopilot.target = b.hdg; }
-      el.btnPilot.classList.toggle('on', b.autopilot.on);
-      UI.toast('Autopilot', !b.autopilot.on ? 'Off'
-        : b.autopilot.mode === 'wpt' ? 'Steering for the waypoint' : 'Holding ' + U.brgStr(b.hdg));
+      /* cycle: off -> waypoint (if set) -> heading -> wind (if sailing) -> off */
+      var mode = !ap.on ? (b.waypoint ? 'wpt' : 'hdg')
+        : ap.mode === 'wpt' ? 'hdg'
+        : ap.mode === 'hdg' && b.sailArea().total > 0.5 ? 'wind'
+        : null;
+      if (mode === null) ap.on = false;
+      else {
+        ap.on = true; ap.mode = mode; ap.i = 0;
+        if (mode === 'hdg') ap.target = b.hdg;
+        if (mode === 'wind') ap.target = b.awa;
+      }
+      el.btnPilot.classList.toggle('on', ap.on);
+      UI.toast('Autopilot', !ap.on ? 'Off'
+        : mode === 'wpt' ? 'Steering for the waypoint'
+        : mode === 'hdg' ? 'Holding ' + U.brgStr(b.hdg)
+        : 'Holding the wind — ' + Math.round(Math.abs(b.awa)) + '° ' + (b.awa >= 0 ? 'stbd' : 'port'));
     });
   }
 
@@ -118,6 +143,8 @@
 
   function bindTop() {
     on(el.btnRate, 'click', function () { G.cycleRate(); });
+    on(el.btnSkip, 'click', function () { UI.toggleTideWait(); });
+    on(el.tbTide, 'click', function () { UI.toggleTideWait(); });
     on(el.btnChart, 'click', function () { UI.showChart(true); });
     on(el.btnBook, 'click', function () { UI.showBook(true); });
     on(el.btnMenu, 'click', function () { UI.showMenu(true); });
@@ -202,12 +229,31 @@
       el.sheetJib.value = Math.round(v.jibSheet);
     }
     var side = function (a) { return a > 2 ? ' stbd' : a < -2 ? ' port' : ' mid'; };
-    el.lblMain.textContent = (v.mainHoist < 0.05 ? 'stowed' :
+    /* the trim state, in the sail's own words — amber losing drive, red wrong */
+    var trimTag = function (st) {
+      if (!st || st.trim === 'drawing' || st.trim === 'stowed' || st.trim === 'furled') return '';
+      var bad = st.trim === 'backed' || st.trim === 'stalled' || st.trim === 'flogging';
+      return ' <i class="trim ' + (bad ? 'bad' : 'warn') + '">' + st.trim + '</i>';
+    };
+    el.lblMain.innerHTML = (v.mainHoist < 0.05 ? 'stowed' :
       (v.mainHoist < 0.99 ? Math.round(v.mainHoist * 100) + '%' : (v.mainReef ? 'reef ' + v.mainReef : 'full'))) +
-      (v.mainHoist > 0.05 ? ' ' + Math.abs(Math.round(v.boomAngle)) + '\u00b0' + side(v.boomAngle) : '');
-    el.lblJib.textContent = v._jibSwap ? 'crossing…'
+      (v.mainHoist > 0.05 ? ' ' + Math.abs(Math.round(v.boomAngle)) + '\u00b0' + side(v.boomAngle) + trimTag(v.sailState.main) : '');
+    el.lblJib.innerHTML = v._jibCross ? 'crossing…'
       : (v.jibOut < 0.05 ? 'furled' : Math.round(v.jibOut * 100) + '%') +
-        (v.jibOut > 0.05 ? ' ' + Math.abs(Math.round(v.jibAngle)) + '\u00b0' + side(v.jibAngle) : '');
+        (v.jibOut > 0.05 ? ' ' + Math.abs(Math.round(v.jibAngle)) + '\u00b0' + side(v.jibAngle) + trimTag(v.sailState.jib) : '');
+
+    /* good-sheet band on the sliders, from the physics' own ideal */
+    var setBand = function (band, st, has) {
+      var show = has && G.settings.hints && S.Coach.aid('bands') && !v.moored;
+      band.classList.toggle('hidden', !show);
+      if (!show) return;
+      var lo = st.ideal[0], hi = st.ideal[1];
+      band.style.left = ((lo + 85) / 170 * 100) + '%';
+      band.style.width = (Math.max(2, hi - lo) / 170 * 100) + '%';
+    };
+    setBand(el.bandMain, v.sailState.main, v.mainHoist > 0.05);
+    setBand(el.bandJib, v.sailState.jib, v.jibOut > 0.05);
+
     el.lblRpm.textContent = v.engine.running ? Math.round(v.engine.rpm) + '  ' +
       (v.engine.gear > 0 ? 'ahd' : v.engine.gear < 0 ? 'ast' : 'neu') : 'off';
     el.lblHelm.textContent = v.moored ? 'alongside'
@@ -219,12 +265,19 @@
     var kx = (v.rudder / 35) * 0.5 + 0.5;
     el.tillerKnob.style.marginLeft = (kx * (el.tillerTrack.clientWidth - 42) - el.tillerTrack.clientWidth / 2) + 'px';
 
+    /* the rest button only appears when she is going nowhere */
+    el.btnSkip.classList.toggle('hidden', !G.canWait());
+    /* the tide curve creeps left as time passes at anchor */
+    if (!el.tidePanel.classList.contains('hidden') && Math.abs(E.t - waveDrawnAt) > 30)
+      drawWave();
+
     /* ground tackle and fleet buttons */
     el.btnAnchor.classList.toggle('on', v.anchor.down);
     el.btnAnchor.classList.toggle('alarm', v.anchor.dragging > 0.4);
     el.btnFleet.classList.toggle('hidden', G.fleet.length < 2);
     if (!el.anchorPanel.classList.contains('hidden')) UI.renderAnchor();
     if (!el.fleetPanel.classList.contains('hidden')) UI.renderFleet();
+    if (!el.coachPanel.classList.contains('hidden')) UI.renderCoach();
 
     /* cargo tag */
     if (v.cargo.length) {
@@ -443,6 +496,14 @@
         kv('Handbook', S.Edu.progress(p).have + ' / ' + S.Edu.progress(p).total) +
       '</div></div>' +
       '<div class="card"><h3>Settings</h3>' +
+        '<div class="row">' +
+          ['assisted', 'standard', 'sim'].map(function (m) {
+            return '<button class="btn' + (G.settings.assist === m ? ' primary' : '') +
+              '" data-assist="' + m + '">' + (m === 'sim' ? 'Simulation' : m[0].toUpperCase() + m.slice(1)) + '</button>';
+          }).join('') +
+        '</div>' +
+        '<div class="meta" style="margin-bottom:6px">How much help the crew gives. Same sea, same physics — ' +
+          'Assisted trims for you through manoeuvres, Simulation turns the aids off.</div>' +
         toggleRow('springHelm', 'Tiller springs back to centre', G.settings.springHelm) +
         toggleRow('hints', 'Show handbook prompts', G.settings.hints) +
         '<div class="row"><button class="btn" id="mSave">Save now</button>' +
@@ -472,6 +533,12 @@
     Array.prototype.forEach.call(el.menuBody.querySelectorAll('[data-toggle]'), function (b) {
       b.onclick = function () {
         G.settings[b.dataset.toggle] = !G.settings[b.dataset.toggle];
+        UI.showMenu(true);
+      };
+    });
+    Array.prototype.forEach.call(el.menuBody.querySelectorAll('[data-assist]'), function (b) {
+      b.onclick = function () {
+        G.settings.assist = b.dataset.assist;
         UI.showMenu(true);
       };
     });
@@ -585,12 +652,23 @@
     });
     if (a.fee) s += 'Berthing fee ' + U.money(-a.fee) + '<br>';
     s += '</div></div>';
+    if (a.passage) {
+      var pz = a.passage;
+      s += '<div class="card tight"><h3>The passage<span class="fee">' + U.durStr(pz.dur) + '</span></h3><div class="kv">' +
+        kv('Distance sailed', pz.sailedNM.toFixed(1) + ' NM') +
+        kv('Under sail', Math.round(pz.sailPct * 100) + '% of the time') +
+        kv('Well trimmed', Math.round(pz.effPct * 100) + '% of the sailing') +
+        kv('Tacks / gybes', pz.tacks + ' / ' + pz.gybes +
+          (pz.crash ? ' · <b style="color:#ef5b5b">' + pz.crash + ' crash</b>' : '')) +
+        kv('Steepest heel', Math.round(pz.maxHeel) + '°') +
+        '</div><div class="verdict ' + pz.cls + '">' + pz.line + '</div></div>';
+    }
     return s;
   }
 
   function tabJobs(port, v, p) {
     var offers = Ec.offers(port, p);
-    var s = '';
+    var s = weatherCard(port);
     var mine = p.contracts.filter(function (c) { return c.origin === port.id && !isLoaded(v, c); });
     if (mine.length) {
       s += '<h2>Accepted, waiting to load</h2>';
@@ -606,9 +684,29 @@
     return v.cargo.some(function (x) { return x.contract === c.id; });
   }
 
+  /** the shipping forecast, such as it is, plus waiting out the tide (§25) */
+  function weatherCard(port) {
+    var rows = [3, 6, 12, 24].map(function (ahead) {
+      var f = E.forecast(E.t + ahead * 3600, S.Coach.aid('fcQuality'));
+      var lo = Math.max(0, f.speed * (1 - f.speedSpread) * U.MS2KN);
+      var hi = f.speed * (1 + f.speedSpread) * U.MS2KN;
+      var marks = (f.storm > 0.5 ? ' · <b style="color:#ef5b5b">gale risk</b>' : f.storm > 0.25 ? ' · squally' : '') +
+                  (f.rain > 0.5 ? ' · rain' : '') + (f.fog > 0.4 ? ' · fog' : '');
+      return '<span>+' + ahead + ' h</span><span>' + U.cardinal(f.dir) + ' ±' + Math.round(f.dirSpread) +
+        '° · ' + lo.toFixed(0) + '–' + hi.toFixed(0) + ' kn (F' + beaufort((lo + hi) / 2) + ')' + marks + '</span>';
+    }).join('');
+    var ti = E.tideInfo(port.x, port.y);
+    return '<div class="card tight"><h3>Weather &amp; tide<span class="fee">' +
+      Math.round(E.weather().pressure) + ' mb</span></h3>' +
+      '<div class="kv">' + rows + '</div>' +
+      '<div class="meta" style="margin-top:5px">Wait here for the tide (each button shows its time):</div>' +
+      waitRow('HW', ti.nextHW) + waitRow('LW', ti.nextLW) + '</div>';
+  }
+
   function contractCard(c, v, p, action) {
     var cd = D.CARGO[c.type], dest = W.port(c.dest);
-    var brg = U.bearingOf(dest.x - W.port(c.origin).x, dest.y - W.port(c.origin).y);
+    var tgt = c.tour ? c.tour : dest;
+    var brg = U.bearingOf(tgt.x - W.port(c.origin).x, tgt.y - W.port(c.origin).y);
     var left = c.deadline - E.t;
     var win = Ec.accessWindow(c.dest, v.draft(), E.t, 0.3);
     var volLeft = v.spec.cargo_volume_m3 - v.cargoVolume();
@@ -617,8 +715,11 @@
     var needFridge = c.fridge && !v.has('fridge');
     var ok = canMass && canVol && !needFridge;
 
-    var s = '<div class="card"><h3>' + U.esc(cd.name) + ' → ' + U.esc(dest.name) +
+    var s = '<div class="card"><h3>' + U.esc(cd.name) + ' → ' +
+      (c.tour ? 'a day at anchor' : U.esc(dest.name)) +
       '<span class="fee">' + U.money(c.reward) + '</span></h3><div class="meta">';
+    if (c.tour) s += 'They want taking to the bay marked on the chart, <b>' +
+      U.durStr(c.tour.staySec) + ' at anchor</b>, and bringing home to ' + U.esc(dest.name) + '.<br>';
     s += '<b>' + c.mass + ' kg</b> · ' + c.volume.toFixed(2) + ' m³ · <b>' + c.nm.toFixed(1) + ' NM</b> ' + U.brgStr(brg) + '<br>';
     s += 'Due ' + U.clockStr(c.deadline) + ' — ' + (left > 0 ? '<b>' + U.durStr(left) + '</b> from now' : '<b style="color:#ef5b5b">overdue</b>') +
       ' · late ' + U.money(c.latePerMin) + '/min<br>';
@@ -626,6 +727,8 @@
       : win.nowOpen ? 'open until <b>' + U.hhmm(win.shut) + '</b>'
       : win.never ? '<b style="color:#ef5b5b">you draw too much</b>'
       : 'opens <b>' + U.hhmm(win.open) + '</b>–' + U.hhmm(win.shut)) + '<br>';
+    if (c.tutorial) s += '<span class="tagline ok">a good first job</span>';
+    if (c.tour) s += '<span class="tagline ok">day charter</span>';
     s += '<span class="tagline' + (c.urgent ? ' hot' : '') + '">' + (c.urgent ? 'urgent' : 'standard') + '</span>';
     if (c.round) s += '<span class="tagline">return charter · ' + (c.ashore / 3600).toFixed(1) + ' h ashore</span>';
     if (c.fridge) s += '<span class="tagline' + (v.has('fridge') ? ' ok' : ' hot') + '">chilled</span>';
@@ -640,7 +743,9 @@
       s += '<button class="btn primary" data-loadc="' + c.id + '"' + (ok ? '' : ' disabled') + '>Load aboard</button>';
       s += '<button class="btn danger" data-drop="' + c.id + '">Give back</button>';
     }
-    s += '<button class="btn" data-wp="' + c.dest + '">Waypoint</button>';
+    s += c.tour
+      ? '<button class="btn" data-wpx="' + c.tour.x + '" data-wpy="' + c.tour.y + '">Waypoint</button>'
+      : '<button class="btn" data-wp="' + c.dest + '">Waypoint</button>';
     if (!canMass) s += '<span class="meta" style="color:#ef5b5b">over payload by ' + (c.mass - massLeft) + ' kg</span>';
     else if (!canVol) s += '<span class="meta" style="color:#ef5b5b">no room in the hold</span>';
     else if (needFridge) s += '<span class="meta" style="color:#ef5b5b">no refrigeration fitted</span>';
@@ -725,7 +830,7 @@
 
   function tabYard(port, v, p) {
     var s = '';
-    if (!port.chandler && !port.yard) return '<div class="empty">No chandler and no yard here.<br>Try Westhaven.</div>';
+    if (!port.chandler && !port.yard) return '<div class="empty">No chandler and no yard here.<br>Try a bigger marina.</div>';
     s += '<h2>Chandlery</h2>';
     D.EQUIP.forEach(function (e) {
       var owned = v.has(e.id);
@@ -829,6 +934,10 @@
       G.vessel.waypoint = { x: d.x, y: d.y };
       UI.toast('Waypoint', 'Set on ' + d.name + ' — bearing shown on the compass');
     });
+    q('[data-wpx]', function (b) {
+      G.vessel.waypoint = { x: +b.dataset.wpx, y: +b.dataset.wpy };
+      UI.toast('Waypoint', 'Set on the bay — anchor inside the circle on the chart');
+    });
     q('[data-fuel]', function (b) {
       var litres = +b.dataset.fuel, price = Ec.fuelPrice(port);
       litres = Math.min(litres, v.fuelCapacity() - v.fuel, p.money / price);
@@ -884,6 +993,7 @@
       UI.toast('Brokerage', sp.name + ' is yours — she is alongside');
       UI.renderPort();
     });
+    wireWait(el.portBody);
     q('[data-swap-v]', function (b) {
       var sp = D.vessel(b.dataset['swapV']), cost = sp.price - Ec.tradeIn(v);
       if (!sp || p.money < cost || v.cargo.length) return;
@@ -910,15 +1020,254 @@
       var open = el.fleetPanel.classList.contains('hidden');
       el.fleetPanel.classList.toggle('hidden', !open);
       el.anchorPanel.classList.add('hidden');
+      el.coachPanel.classList.add('hidden');
       if (open) UI.renderFleet();
     });
+    on(el.btnCoach, 'click', function () { UI.toggleCoach(); });
   }
   UI.toggleAnchor = function () {
     var open = el.anchorPanel.classList.contains('hidden');
     el.anchorPanel.classList.toggle('hidden', !open);
     el.fleetPanel.classList.add('hidden');
+    el.coachPanel.classList.add('hidden');
     if (open) UI.renderAnchor();
   };
+  UI.toggleCoach = function (force) {
+    var open = force !== undefined ? force : el.coachPanel.classList.contains('hidden');
+    el.coachPanel.classList.toggle('hidden', !open);
+    el.anchorPanel.classList.add('hidden');
+    el.fleetPanel.classList.add('hidden');
+    if (open) UI.renderCoach();
+  };
+  UI.coachHidden = function () { return el.coachPanel.classList.contains('hidden'); };
+  UI.renderCoach = function () {
+    if (el.coachPanel.classList.contains('hidden')) return;
+    el.coachPanel.innerHTML = S.Coach.renderPanel(G.vessel, G);
+  };
+
+  /* ---- waiting for the tide (the topbar clock, or tap the tide chip) ----
+     A tide curve for the next day; tap it to choose the moment to skip to. */
+  var WAVE_SPAN = 25 * 3600;      // drawn window; G.timeSkip itself caps at 26 h
+  var waveSel = null;             // chosen moment, absolute game seconds
+  var waveDrawnAt = -1;           // E.t at the last canvas redraw
+
+  UI.toggleTideWait = function () {
+    var open = el.tidePanel.classList.contains('hidden');
+    el.tidePanel.classList.toggle('hidden', !open);
+    el.anchorPanel.classList.add('hidden');
+    el.fleetPanel.classList.add('hidden');
+    el.coachPanel.classList.add('hidden');
+    if (open) { waveSel = null; UI.renderTideWait(); }
+  };
+  UI.renderTideWait = function () {
+    if (el.tidePanel.classList.contains('hidden')) return;
+    var v = G.vessel, ti = E.tideInfo(v.x, v.y);
+    var h = '<h4>Wait for the tide<span class="meta">time passes honestly</span></h4>';
+    h += '<canvas id="tideWave" class="tide-wave"></canvas>';
+    h += '<div class="kv">' +
+      '<span>Next high water</span><span>' + U.hhmm(ti.nextHW) + ' · ' + ti.nextHWHeight.toFixed(1) + ' m</span>' +
+      '<span>Next low water</span><span>' + U.hhmm(ti.nextLW) + ' · ' + ti.nextLWHeight.toFixed(1) + ' m</span></div>';
+    if (!G.canWait()) {
+      h += '<div class="verdict">She must be alongside, in port, or anchored and holding — ' +
+           'the tide only waits for a boat that is going nowhere.</div>';
+    } else {
+      h += '<div id="tideSelInfo" class="verdict">Tap the curve to choose a moment</div>';
+      h += '<div class="row">' +
+        '<button class="btn" id="tideSelHW">High water</button>' +
+        '<button class="btn" id="tideSelLW">Low water</button>' +
+        '<button class="btn primary" id="tideGo" disabled>Skip</button></div>';
+    }
+    el.tidePanel.innerHTML = h;
+    wireWave();
+    drawWave();
+    updateWaveSel();
+  };
+
+  /** a row of skip buttons around a high or low water — the port weather card */
+  function waitRow(name, base) {
+    var s = '<div class="row">';
+    [-2, -1, 0, 1, 2].forEach(function (off) {
+      var t = base + off * 3600;
+      if (t < E.t + 120) t += E.T_SEMI;      // that moment is past: the next cycle's
+      s += '<button class="btn' + (off === 0 ? ' primary' : '') + '" data-wait="' + Math.round(t) + '"' +
+        ' title="' + U.hhmm(t) + '">' + name + (off ? (off > 0 ? '+' : '−') + Math.abs(off) : '') + '</button>';
+    });
+    return s + '</div>';
+  }
+  function wireWait(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-wait]'), function (b) {
+      b.onclick = function () {
+        var r = G.timeSkip(+b.dataset.wait);
+        if (!r.ok) {
+          UI.alert(r.reason === 'moving' ? 'She must be stopped and held to wait' : 'That tide is already past', 2400, 'warn');
+          return;
+        }
+        var ti = E.tideInfo(G.vessel.x, G.vessel.y);
+        if (r.aborted) UI.alert('Wait cut short — ' + r.aborted, 3400, 'warn');
+        else UI.toast('Waited ' + U.durStr(r.skipped), 'Now ' + U.hhmm(E.t) + ' — tide ' +
+          ti.height.toFixed(1) + ' m ' + (ti.rising ? 'rising' : 'falling'));
+        UI.renderTideWait();
+        UI.hud(G.vessel, G.player);
+        if (G.atPort) UI.renderPort();
+      };
+    });
+  }
+
+  /** high and low waters over the drawn window, from the same curve we plot */
+  function waveExtrema(v, t0) {
+    var out = [], step = 300;
+    var prev = E.tideHeight(v.x, v.y, t0), prevD = 0;
+    for (var t = t0 + step; t <= t0 + WAVE_SPAN; t += step) {
+      var cur = E.tideHeight(v.x, v.y, t);
+      var d = cur - prev;
+      if (prevD > 0 && d <= 0) out.push({ t: t - step, h: prev, hi: true });
+      if (prevD < 0 && d >= 0) out.push({ t: t - step, h: prev, hi: false });
+      prev = cur; prevD = d || prevD;
+    }
+    return out;
+  }
+
+  function drawWave() {
+    var cv = $('tideWave');
+    if (!cv || el.tidePanel.classList.contains('hidden')) return;
+    var v = G.vessel, t0 = E.t;
+    waveDrawnAt = t0;
+    if (waveSel !== null && waveSel < t0 + 60) { waveSel = null; updateWaveSel(); }
+    var cw = cv.clientWidth || 294, ch = cv.clientHeight || 104;
+    var dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(cw * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
+    var ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cw, ch);
+
+    var N = 150, hs = [], mn = 1e9, mx = -1e9;
+    for (var i = 0; i <= N; i++) {
+      var hh = E.tideHeight(v.x, v.y, t0 + WAVE_SPAN * i / N);
+      hs.push(hh);
+      if (hh < mn) mn = hh;
+      if (hh > mx) mx = hh;
+    }
+    var pad = 0.16 * (mx - mn + 0.01);
+    mn -= pad; mx += pad;
+    var X = function (t) { return (t - t0) / WAVE_SPAN * cw; };
+    var Y = function (hh) { return ch - 5 - (hh - mn) / (mx - mn) * (ch - 26); };
+
+    /* clock gridlines every six hours of world time */
+    ctx.font = '9px ui-monospace,Menlo,monospace';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = 'rgba(34,72,92,.55)';
+    ctx.fillStyle = '#7fa3b4';
+    ctx.lineWidth = 1;
+    for (var tg = Math.ceil(t0 / 21600) * 21600; tg < t0 + WAVE_SPAN; tg += 21600) {
+      var gx = X(tg);
+      if (gx < 14 || gx > cw - 14) continue;
+      ctx.beginPath(); ctx.moveTo(gx, 12); ctx.lineTo(gx, ch - 4); ctx.stroke();
+      ctx.fillText(U.hhmm(tg), gx, 9);
+    }
+
+    /* the curve, filled to the bottom like water */
+    ctx.beginPath();
+    ctx.moveTo(0, Y(hs[0]));
+    for (var j = 1; j <= N; j++) ctx.lineTo(cw * j / N, Y(hs[j]));
+    ctx.strokeStyle = '#4fd1c5';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.lineTo(cw, ch); ctx.lineTo(0, ch); ctx.closePath();
+    ctx.fillStyle = 'rgba(79,209,197,.14)';
+    ctx.fill();
+
+    /* high and low waters, marked and timed */
+    var ex = waveExtrema(v, t0);
+    ctx.fillStyle = '#dcecf3';
+    for (var k = 0; k < ex.length; k++) {
+      var e = ex[k], exx = X(e.t), exy = Y(e.h);
+      ctx.beginPath(); ctx.arc(exx, exy, 2.2, 0, U.TAU); ctx.fill();
+      var lx = U.clamp(exx, 16, cw - 16);
+      ctx.fillText(U.hhmm(e.t), lx, e.hi ? exy - 5 : exy + 11);
+    }
+
+    /* now, at the left edge */
+    ctx.fillStyle = '#7fa3b4';
+    ctx.textAlign = 'left';
+    ctx.fillText('now', 3, ch - 8);
+
+    /* the chosen moment */
+    if (waveSel !== null) {
+      var sx = X(waveSel), sh = E.tideHeight(v.x, v.y, waveSel);
+      ctx.strokeStyle = '#f2b134';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(sx, 12); ctx.lineTo(sx, ch - 4); ctx.stroke();
+      ctx.fillStyle = '#f2b134';
+      ctx.beginPath(); ctx.arc(sx, Y(sh), 3.2, 0, U.TAU); ctx.fill();
+    }
+  }
+
+  function updateWaveSel() {
+    var info = $('tideSelInfo'), go = $('tideGo');
+    if (!info || !go) return;
+    if (waveSel === null) {
+      info.textContent = 'Tap the curve to choose a moment';
+      go.textContent = 'Skip';
+      go.disabled = true;
+      return;
+    }
+    var v = G.vessel;
+    var hh = E.tideHeight(v.x, v.y, waveSel);
+    var rising = E.tideHeight(v.x, v.y, waveSel + 120) > hh;
+    info.textContent = U.hhmm(waveSel) + ' — in ' + U.durStr(waveSel - E.t) +
+      ' — tide ' + hh.toFixed(1) + ' m ' + (rising ? 'rising' : 'falling');
+    go.textContent = 'Skip to ' + U.hhmm(waveSel);
+    go.disabled = false;
+  }
+
+  function wireWave() {
+    var cv = $('tideWave');
+    if (!cv) return;
+    var drag = false;
+    function pick(e) {
+      var r = cv.getBoundingClientRect();
+      var t = E.t + U.clamp((e.clientX - r.left) / r.width, 0, 1) * WAVE_SPAN;
+      /* the moments that matter are the turns of the tide: snap when close */
+      var ex = waveExtrema(G.vessel, E.t), best = null;
+      for (var i = 0; i < ex.length; i++)
+        if (Math.abs(ex[i].t - t) < 900 && (best === null || Math.abs(ex[i].t - t) < Math.abs(best - t)))
+          best = ex[i].t;
+      t = best !== null ? best : Math.round(t / 300) * 300;
+      waveSel = Math.max(t, E.t + 120);
+      updateWaveSel();
+      drawWave();
+    }
+    on(cv, 'pointerdown', function (e) { drag = true; cv.setPointerCapture(e.pointerId); pick(e); });
+    on(cv, 'pointermove', function (e) { if (drag) pick(e); });
+    on(cv, 'pointerup', function () { drag = false; });
+    on(cv, 'pointercancel', function () { drag = false; });
+    var hw = $('tideSelHW'), lw = $('tideSelLW'), go = $('tideGo');
+    if (!go) return;
+    function firstTurn(hi) {
+      var ex = waveExtrema(G.vessel, E.t);
+      for (var i = 0; i < ex.length; i++)
+        if (ex[i].hi === hi && ex[i].t > E.t + 120) return ex[i].t;
+      return null;
+    }
+    hw.onclick = function () { waveSel = firstTurn(true); updateWaveSel(); drawWave(); };
+    lw.onclick = function () { waveSel = firstTurn(false); updateWaveSel(); drawWave(); };
+    go.onclick = function () {
+      if (waveSel === null) return;
+      var r = G.timeSkip(waveSel);
+      if (!r.ok) {
+        UI.alert(r.reason === 'moving' ? 'She must be stopped and held to wait' : 'That moment is already past', 2400, 'warn');
+        return;
+      }
+      var ti = E.tideInfo(G.vessel.x, G.vessel.y);
+      if (r.aborted) UI.alert('Wait cut short — ' + r.aborted, 3400, 'warn');
+      else UI.toast('Waited ' + U.durStr(r.skipped), 'Now ' + U.hhmm(E.t) + ' — tide ' +
+        ti.height.toFixed(1) + ' m ' + (ti.rising ? 'rising' : 'falling'));
+      waveSel = null;
+      UI.renderTideWait();
+      UI.hud(G.vessel, G.player);
+      if (G.atPort) UI.renderPort();
+    };
+  }
 
   UI.renderAnchor = function () {
     if (el.anchorPanel.classList.contains('hidden')) return;

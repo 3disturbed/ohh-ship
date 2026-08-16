@@ -13,7 +13,7 @@
   G.rate = 1;
   G.atPort = null;
   G.autoTack = null;
-  G.settings = { springHelm: false, hints: true };
+  G.settings = { springHelm: false, hints: true, assist: 'standard' };
   G.player = null;
   G.vessel = null;          // always points at G.fleet[G.active]
   G.fleet = [];
@@ -40,6 +40,7 @@
       money: start.money, reputation: start.rep, start: start.id,
       unlocked: [], done: [], contracts: [],
       everFixed: false,
+      tut: { step: 0, done: false },
       stats: { jobs: 0, lateJobs: 0, earned: 0, groundings: 0, tacks: 0 }
     };
   }
@@ -73,7 +74,7 @@
     R.clearWake();
     Ec.invalidate();
     UI.showPort(home, null);
-    UI.toast('Westhaven', 'Take a contract, load it, then cast off and slip your lines.');
+    UI.toast(home.name, 'Take a contract, load it, then cast off and slip your lines.');
   };
 
   /** step aboard one of your own boats */
@@ -130,6 +131,7 @@
       if (s.version !== 4) return false;
       G.player = s.player;
       if (!G.player.stats) G.player.stats = { jobs: 0, lateJobs: 0, earned: 0, groundings: 0, tacks: 0 };
+      if (!G.player.tut) G.player.tut = { step: 0, done: G.player.stats.jobs > 0 };
       if (!isFinite(G.player.money)) G.player.money = 0;
       E.t = s.t;
       G.fleet = (s.fleet || []).map(function (o) {
@@ -142,6 +144,7 @@
       G.active = U.clamp(s.active | 0, 0, G.fleet.length - 1);
       G.setActive(G.active, true);
       if (s.settings) G.settings = s.settings;
+      if (!G.settings.assist) G.settings.assist = 'standard';
       if (s.atPort) UI.showPort(W.port(s.atPort), null);
       return true;
     } catch (e) { return false; }
@@ -190,11 +193,23 @@
           notes: ['Your passengers are not due back aboard until ' + U.hhmm(c.notBefore)] });
         continue;
       }
+      /* day-charter guests will not pay to be brought straight home */
+      if (c.tour && !c.tour.done) {
+        report.items.push({ name: 'Day charter', pay: 0, rep: 0,
+          notes: ['They booked ' + U.durStr(c.tour.staySec) + ' at anchor in the bay marked on the chart' +
+                  (c.tour.stayed > 0 ? ' — ' + U.durStr(c.tour.staySec - c.tour.stayed) + ' still to go' : '')] });
+        continue;
+      }
       var res = Ec.deliver(G.player, v, c, item);
       report.items.push({ name: D.CARGO[item.type].name, pay: res.pay, rep: res.rep, notes: res.notes });
       report.total += res.pay;
       v.cargo.splice(i, 1);
       G.player.contracts = G.player.contracts.filter(function (x) { return x.id !== c.id; });
+    }
+    /* the passage, in numbers and one honest sentence */
+    if (G.voyage && report.items.length) {
+      report.passage = debrief(G.voyage, v, report);
+      G.voyage = null;
     }
     G.player.money = Math.round((G.player.money - fee) * 100) / 100;
     Ec.invalidate();
@@ -202,6 +217,34 @@
     UI.showPort(port, report);
     G.save();
   };
+
+  /** summarise a voyage record into display numbers and one coaching line */
+  function debrief(voy, v, report) {
+    var sailedNM = (v.log - voy.logStart) / U.NM;
+    var dur = E.t - voy.t0;
+    var sailPct = dur > 0 ? voy.sailSec / dur : 0;
+    var effPct = voy.sailSec > 10 ? voy.effSec / voy.sailSec : 0;
+    var luffPct = voy.sailSec > 10 ? voy.luffSec / voy.sailSec : 0;
+    var line, cls;
+    if (voy.crash > 0) {
+      line = 'She crash-gybed. Sheet the main to the centre before the stern crosses the wind — a boom that flies across breaks things.'; cls = 'bad';
+    } else if (voy.maxHeel > 28) {
+      line = 'She spent time overpowered at ' + Math.round(voy.maxHeel) + '° of heel. Reef earlier — a flatter boat is a faster one.'; cls = 'warn';
+    } else if (luffPct > 0.25) {
+      line = 'The sails were flogging ' + Math.round(luffPct * 100) + '% of the time under way. Watch the telltales and keep them drawing.'; cls = 'warn';
+    } else if (voy.sailSec > 300 && effPct < 0.5) {
+      line = 'Only ' + Math.round(effPct * 100) + '% of the sailing was well trimmed. Small, frequent sheet adjustments pay.'; cls = 'warn';
+    } else if (dur > 1800 && voy.motorSec / dur > 0.75) {
+      line = 'Almost all of it under engine. The wind is free, and the fuel bonus is real money.'; cls = '';
+    } else {
+      line = 'A tidy passage. Well sailed.'; cls = 'good';
+    }
+    return {
+      sailedNM: sailedNM, dur: dur, sailPct: sailPct, effPct: effPct,
+      tacks: voy.tacks, gybes: voy.gybes, crash: voy.crash,
+      maxHeel: voy.maxHeel, line: line, cls: cls
+    };
+  }
 
   G.castOff = function () {
     UI.hidePort();
@@ -217,6 +260,9 @@
     var v = G.vessel;
     if (!v.slipLines()) return;
     UI.setMoor(false);
+    /* a fresh voyage record: berth to berth */
+    G.voyage = { logStart: v.log, t0: E.t, sailSec: 0, effSec: 0, luffSec: 0,
+                 motorSec: 0, maxHeel: 0, tacks: 0, gybes: 0, crash: 0 };
     UI.toast('Lines slipped', v.engine.running || v.sailArea().total > 0.5 ?
       'You have the boat' : 'Nothing set and no engine — you are drifting');
     S.Edu.onEvent('moor', G.player, UI);
@@ -245,6 +291,42 @@
     G.rate = RATES[(i + 1) % RATES.length];
   };
 
+  /* ===================== waiting for the tide ===================== */
+  /** she can wait when she is going nowhere: in port, alongside, or riding
+      to an anchor that is holding */
+  G.canWait = function () {
+    var v = G.vessel;
+    return !!G.atPort || v.moored || (v.anchor.down && v.anchor.dragging < 0.3);
+  };
+  /** Advance the world to targetT with the whole fleet honestly simulated at
+      one-second steps: cargo keeps rotting, deadlines keep running, anchors
+      can still drag — and the wait stops early if anything goes wrong. */
+  G.timeSkip = function (targetT) {
+    var v = G.vessel;
+    if (!G.canWait()) return { ok: false, reason: 'moving' };
+    var total = Math.min(targetT - E.t, 26 * 3600);
+    if (total < 60) return { ok: false, reason: 'past' };
+    var t0 = E.t, aborted = null;
+    while (E.t < t0 + total) {
+      for (var i = 0; i < G.fleet.length; i++) {
+        var b = G.fleet[i];
+        b.pilotStep(1);
+        /* a boat riding to her chain is a stiff spring: step her finely or
+           the surging is numerical, not real */
+        if (b.anchor.down) { for (var k2 = 0; k2 < 5; k2++) b.step(0.2); }
+        else b.step(1);
+      }
+      tourTick(v, 1, null);          // guests' time at anchor counts while waiting
+      E.advance(1);
+      if (!v.moored && v.anchor.down && v.anchor.dragging > 0.5) { aborted = 'the anchor is dragging'; break; }
+      if (v.grounded && !v.moored) { aborted = 'she has taken the ground'; break; }
+    }
+    G.fleet.forEach(function (b) { b.envRefresh(); });
+    Ec.invalidate();
+    G.save();
+    return { ok: true, skipped: E.t - t0, aborted: aborted };
+  };
+
   G.fix = function () {
     var v = G.vessel;
     if (v.has('gps')) { UI.toast('GPS', 'Position is continuous — no fix needed'); return; }
@@ -270,13 +352,38 @@
     if (v.fuel / v.fuelCapacity() < 0.12 && v.engine.running) UI.persistentAlert('fuel', 'FUEL LOW — ' + v.fuel.toFixed(1) + ' L', 'warn');
     if (v.engine.temp > 100) UI.persistentAlert('temp', 'ENGINE OVERHEATING', '');
     if (Math.abs(U.deg(v.heel)) > 28) UI.persistentAlert('heel', 'OVERPOWERED — ease sheets or reef', 'warn');
+    /* by the lee: the wind has got behind the boom, and it can slam across */
+    if (v.sailArea().total > 0.5 && Math.abs(v.awa) > 150 &&
+        (v.awa >= 0 ? 1 : -1) === v.boomSide)
+      UI.persistentAlert('bylee', 'BY THE LEE — the boom can slam across. Head up, or gybe now', 'warn');
     if (v.damage.hull > 0.75) UI.persistentAlert('hull', 'HULL DAMAGE — make for a yard', '');
     var wx = E.weather();
     if (wx.visibility < 900) UI.persistentAlert('fog', 'FOG — visibility under half a mile', 'info');
   }
 
+  /* day-charter guests: their clock only runs while she lies quietly at
+     anchor inside the chosen bay. Shared by the live loop and G.timeSkip. */
+  function tourTick(v, dt, ui) {
+    if (!G.player) return;
+    G.player.contracts.forEach(function (c) {
+      if (!c.tour || c.tour.done) return;
+      if (!v.cargo.some(function (x) { return x.contract === c.id; })) return;
+      var inBay = U.len(v.x - c.tour.x, v.y - c.tour.y) < c.tour.r;
+      if (inBay && v.anchor.down && v.anchor.dragging < 0.4) {
+        if (c.tour.stayed === 0 && ui)
+          ui.toast('Guests', 'This is the spot. They are settling in for ' + U.durStr(c.tour.staySec) + ' at anchor.');
+        c.tour.stayed += dt;
+        if (c.tour.stayed >= c.tour.staySec) {
+          c.tour.done = true;
+          if (ui) ui.toast('Guests', 'A grand day out. Time to take them home to ' + W.port(c.dest).name + '.');
+        }
+      }
+    });
+  }
+  G.tourTick = tourTick;
+
   /* ===================== per-second logic ===================== */
-  var wasGrounded = false, hintStage = 0;
+  var wasGrounded = false;
   function everySecond(v, dt) {
     if (!isFinite(G.player.money)) { console.warn('money repaired'); G.player.money = 0; }
     if (!isFinite(G.player.reputation)) G.player.reputation = 20;
@@ -298,7 +405,30 @@
       v.startFailed = null;
     }
     Edu.observe(dt, v, G.player, G.settings.hints ? UI : null);
+    S.Coach.tick(dt, v, G, UI);
     hazards(v);
+
+    /* manoeuvre events from the rig (read-and-clear) */
+    var ev = v.sailState.event;
+    if (ev) {
+      v.sailState.event = null;
+      if (G.voyage) {
+        if (ev.type === 'tack') G.voyage.tacks++;
+        else if (ev.type === 'gybe') G.voyage.gybes++;
+        else if (ev.type === 'crashGybe') G.voyage.crash++;
+      }
+    }
+    /* the voyage log, for the debrief when she next delivers */
+    if (G.voyage) {
+      var sailingNow = v.sailArea().total > 0.5;
+      if (sailingNow) {
+        G.voyage.sailSec += dt;
+        if (v.eff > 0.75) G.voyage.effSec += dt;
+        if (Math.max(v.luffMain, v.luffJib) > 0.35) G.voyage.luffSec += dt;
+      }
+      if (v.engine.running && v.engine.gear !== 0) G.voyage.motorSec += dt;
+      G.voyage.maxHeel = Math.max(G.voyage.maxHeel, Math.abs(U.deg(v.heel)));
+    }
 
     if (v.grounded && !wasGrounded) {
       G.player.stats.groundings++;
@@ -322,6 +452,8 @@
       v.x = home.x; v.y = home.y; v.vx = v.vy = 0; v.fuel = Math.min(v.fuel, 5);
       UI.showPort(home, null);
     }
+
+    tourTick(v, dt, UI);
 
     /* overdue contracts still aboard */
     G.player.contracts.forEach(function (c) {
@@ -348,16 +480,6 @@
       if (bv.anchor.dragging < 0.2) bv._toldDrag = false;
     }
 
-    /* gentle first-run guidance */
-    if (G.settings.hints && !G.atPort) {
-      if (hintStage === 0 && v.sailArea().total < 0.5 && !v.engine.running) {
-        UI.toast('Getting under way', 'Start the engine (E) to leave the berth, or hoist sail with M and J');
-        hintStage = 1;
-      } else if (hintStage === 1 && v.sailArea().total > 0.5) {
-        UI.toast('Sail trim', 'Ease the sheet until the sail flaps, then pull in until it stops');
-        hintStage = 2;
-      }
-    }
   }
 
   /* ===================== helm input ===================== */
@@ -371,20 +493,41 @@
     if (k['w'] || k['arrowup']) v.engine.throttle = U.clamp(v.engine.throttle + dt * 0.6, 0, 1);
     if (k['s'] || k['arrowdown']) v.engine.throttle = U.clamp(v.engine.throttle - dt * 0.6, 0, 1);
 
-    /* assisted tack or gybe: hold the helm over until she comes round */
+    /* assisted tack or gybe: a narrated sequence, not just helm-over.
+       A gybe sheets the main home first — that is the whole safety lesson. */
     if (G.autoTack) {
       var at = G.autoTack;
       if (at.age === undefined) at.age = 0;
       at.age += dt;
       var finish = function () { G.autoTack = null; v.rudderCmd = 0; };
-      var d = U.angDiff(at.target, v.hdg);
-      if (Math.abs(U.deg(d)) < 8 || (!at.gybe && Math.abs(v.awa) > 150)) {
-        finish();
-      } else if (at.age > 45) {
-        finish();
-        UI.toast('In irons', 'She would not come round. Bear away, get some speed, and try again.');
-        Edu.unlock(G.player, 'tacking', UI);
-      } else v.rudderCmd = U.clamp(U.deg(d) * 2.5, -32, 32);
+      if (at.gybe && at.phase === 'centre') {
+        if (S.Coach.aid('autotrim'))
+          v.mainSheet = U.approach(v.mainSheet, v.mainSheet >= 0 ? 6 : -6, 15, dt);
+        if (Math.abs(v.mainSheet) < 22 || at.age > 10) {
+          if (Math.abs(v.mainSheet) >= 22)
+            UI.toast('Gybe', 'The main is still eased — this one will come across hard');
+          at.phase = 'turn';
+        }
+      } else {
+        var d = U.angDiff(at.target, v.hdg);
+        if (Math.abs(U.deg(d)) < 8 || (!at.gybe && Math.abs(v.awa) > 150)) {
+          if (at.gybe) {
+            /* through: hand her the old ease on the new side, or tell them to */
+            var lee = v.awa >= 0 ? -1 : 1;
+            if (S.Coach.aid('autotrim')) {
+              v.mainSheet = lee * Math.abs(at.savedMain || 55);
+              v.jibSheet = lee * Math.abs(at.savedJib || 55);
+              v.sheetsHanded = true;
+              UI.toast('Gybe complete', 'Eased out on the new side. Clean as you like.');
+            } else UI.toast('Gybe complete', 'Now ease her out on the new side.');
+          }
+          finish();
+        } else if (at.age > 45) {
+          finish();
+          UI.toast('In irons', 'She would not come round. Bear away, get some speed, and try again.');
+          Edu.unlock(G.player, 'tacking', UI);
+        } else v.rudderCmd = U.clamp(U.deg(d) * 2.5, -32, 32);
+      }
     }
   }
 
@@ -473,6 +616,7 @@
     if (portTick % 45 === 0) {
       UI.hud(G.vessel, G.player);
       if (UI.portTab === 'jobs') UI.renderPort();
+      S.Coach.tick(0.75, G.vessel, G, UI);   // the tutorial's harbour steps live here
     }
   };
 

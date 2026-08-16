@@ -4,8 +4,22 @@
     {
       "name": "ohh-ship",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8777"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8777"
+      ],
       "port": 8777
+    },
+    {
+      "name": "ohh-ship-b",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8791"
+      ],
+      "port": 8791
     }
   ]
 }

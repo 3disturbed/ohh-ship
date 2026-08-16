@@ -18,12 +18,19 @@
 
     this.mainHoist = 0;      // 0 = stowed, 1 = fully hoisted
     this.mainReef = 0;
-    this.mainSheet = 55;     // degrees off the centreline
+    this.mainSheet = -55;    // degrees off the centreline, negative to port
     this.jibOut = 0;         // 0 = furled, 1 = fully set
-    this.jibSheet = 55;
+    this.jibSheet = -55;
     /* signed angle of the boom and the headsail clew: negative to port,
        positive to starboard. They swing across; they never teleport. */
     this.boomAngle = -55; this.jibAngle = -55;
+    /* per-sail aerodynamic state, for the renderer and the coaching layer.
+       sgn is the side the cloth bellies to (the low-pressure side). */
+    this.sailState = {
+      main: { sgn: -1, backed: false, luff: 0, stall: 0, aoa: 0, trim: 'stowed', ideal: [0, 0] },
+      jib:  { sgn: -1, backed: false, luff: 0, stall: 0, aoa: 0, trim: 'furled', ideal: [0, 0] },
+      event: null            // {type:'tack'|'gybe'|'crashGybe', t} — consumers read and clear
+    };
     this._reefing = 0;
 
     this.engine = { running: false, rpm: 0, throttle: 0, gear: 0, temp: 18, hours: 0, starting: 0 };
@@ -113,8 +120,11 @@
     a = Math.abs(a);
     var ar = U.rad(Math.min(a, 179));
     var attached = Math.min(a / 25, 1.12);
-    var ClA = 1.45 * Math.pow(attached, 0.85);
-    var CdA = 0.05 + 0.38 * attached * attached;
+    /* lift builds near-linearly from the luff and drag never vanishes —
+       which is what closes the no-go zone: pinching below ~35 degrees true
+       leaves too little lift over too much drag */
+    var ClA = 1.45 * Math.pow(attached, 1.4);
+    var CdA = 0.10 + 0.38 * attached * attached;
     var Cn = 1.9 * Math.sin(ar);
     var ClP = Math.max(0, Cn * Math.cos(ar));
     var CdP = Cn * Math.sin(ar) + 0.06;
@@ -122,6 +132,17 @@
     return { cl: U.lerp(ClA, ClP, s), cd: U.lerp(CdA, CdP, s), stall: s };
   }
   Vessel.prototype.coeffs = coeffs;
+
+  /** one word for the state of a sail, for labels and coaching */
+  function trimClass(backed, luff, stall) {
+    if (backed) return 'backed';
+    if (luff > 0.55) return 'flogging';
+    if (luff > 0.15) return 'luffing';
+    if (stall > 0.7) return 'stalled';
+    if (stall > 0.35) return 'pressed';
+    return 'drawing';
+  }
+  Vessel.prototype.trimClass = trimClass;
 
   /* ---------- engine (§18, §19) ---------- */
   Vessel.prototype.engineStep = function (dt) {
@@ -186,9 +207,13 @@
         } else ap.target = U.bearingOf(this.waypoint.x - this.x, this.waypoint.y - this.y);
       }
     }
-    var err = ap.mode === 'wind' ? -U.deg(U.wrapPI(U.rad(this.awa - ap.target)))
+    var err = ap.mode === 'wind' ? U.deg(U.wrapPI(U.rad(this.awa - ap.target)))
                                  : U.deg(U.angDiff(ap.target, this.hdg));
-    this.rudderCmd = U.clamp(err * 1.5 - U.deg(this.yawRate) * 3.2, -30, 30);
+    /* a slow integral trims out standing weather helm; it only gathers when
+       she is nearly on course, so big turns cannot wind it up */
+    if (Math.abs(err) < 10) ap.i = U.clamp((ap.i || 0) + err * dt * 0.06, -10, 10);
+    else ap.i = (ap.i || 0) * (1 - 0.2 * dt);
+    this.rudderCmd = U.clamp(err * 1.5 + ap.i - U.deg(this.yawRate) * 3.2, -30, 30);
   };
 
   /* =======================================================================
@@ -231,48 +256,55 @@
     var aAbs = Math.abs(this.awa);
     var lee = -windSide;
     /* The sheets are a signed command: where you want the boom, port or
-       starboard, anywhere through 170 degrees. When the wind crosses from one
-       bow to the other they are handed across for you, keeping however much
+       starboard. When the wind genuinely crosses the bow (a tack) or the
+       stern (a gybe) they are handed across for you, keeping however much
        you had eased — but a boom you have deliberately set to windward stays
-       there, backed, until the wind really does cross. */
-    if (this._lastLee === undefined) this._lastLee = lee;
-    if (aAbs > 4 && aAbs < 168) {
-      if (this._lastLee !== lee) {              // the wind really has crossed
+       there, backed, until the wind really does cross. Within a few degrees
+       of head-to-wind or dead astern the latch holds, so she can hang in
+       irons, or run a little by the lee, without the gear slamming about. */
+    if (this._windSide === undefined) this._windSide = windSide;
+    if (windSide !== this._windSide) {
+      var bowCross = aAbs > 4 && aAbs < 90;
+      var sternCross = aAbs > 90 && aAbs < 172;
+      if (bowCross || sternCross) {
+        this._windSide = windSide;
         this.mainSheet = lee * Math.abs(this.mainSheet);
         this.jibSheet = lee * Math.abs(this.jibSheet);
         this.sheetsHanded = true;               // tells the UI to move the sliders
+        this.sailState.event = { type: bowCross ? 'tack' : 'gybe', t: E.t };
       }
-      this._lastLee = lee;
     }
     this.boomSide = this.mainSheet >= 0 ? 1 : -1;
     var swing = 34 + 80 * U.clamp(this.aws / 8, 0, 1.7);        // degrees per second
     /* the boom swings across above the coachroof */
     this.boomAngle = U.approach(this.boomAngle, this.mainSheet, swing, dt);
 
-    /* A headsail cannot pass through the mast and rigging. To put it on the
-       other side it has to come in first, so the crew roll it away, hand the
-       sheets across, and set it again — and you are without a headsail while
-       they do it. */
+    /* A headsail tacks by blowing across the foredeck: the old sheet is let
+       fly, she flogs between forestay and mast for a few seconds, and the
+       new sheet brings her in on the other side. (Rolling her away is for
+       reducing sail — that is what the furler is for.) */
     var jibCmdSide = this.jibSheet >= 0 ? 1 : -1;
     var jibNowSide = this.jibAngle >= 0 ? 1 : -1;
-    if (jibCmdSide !== jibNowSide && this.jibOut > 0.02 && !this._jibSwap) {
-      this._jibSwap = { want: this._furlTo !== undefined ? this._furlTo : this.jibOut, phase: 'in' };
-      delete this._furlTo;
+    if (jibCmdSide !== jibNowSide && this.jibOut > 0.02 && !this._jibCross) {
+      this._jibCross = true; this._jibSettle = 0;
     }
-    if (this._jibSwap) {
-      var frate = this.has('furler') ? 0.85 : 0.42;             // roller gear is quicker
-      if (this._jibSwap.phase === 'in') {
-        this.jibOut = Math.max(0, this.jibOut - frate * dt);
-        if (this.jibOut <= 0.002) { this.jibOut = 0; this.jibAngle = this.jibSheet; this._jibSwap.phase = 'out'; }
-      } else {
-        this.jibOut = Math.min(this._jibSwap.want, this.jibOut + frate * dt);
-        if (this.jibOut >= this._jibSwap.want - 0.002) { this.jibOut = this._jibSwap.want; this._jibSwap = null; }
-      }
-    } else if (this.jibOut <= 0.02) {
+    if (this.jibOut <= 0.02) {
       this.jibAngle = this.jibSheet;                            // furled: free to reset either side
+      this._jibCross = false;
     } else {
       this.jibAngle = U.approach(this.jibAngle, this.jibSheet, swing * 1.9, dt);
     }
+    if (this._jibCross) {
+      if ((this.jibAngle >= 0 ? 1 : -1) === jibCmdSide && Math.abs(this.jibAngle - this.jibSheet) < 8) {
+        this._jibSettle += dt;
+        if (this._jibSettle > 1.2) this._jibCross = false;      // she fills on the new side
+      } else this._jibSettle = 0;
+    }
+    /* the sheet band where she draws best on this point of sail (coaching) */
+    var loE = U.clamp(Math.min(aAbs - 26, 78), 0, 85);
+    var hiE = U.clamp(Math.min(aAbs - 16, 85), loE, 85);
+    this.sailState.main.ideal = lee === 1 ? [loE, hiE] : [-hiE, -loE];
+    this.sailState.jib.ideal = lee === 1 ? [loE, hiE] : [-hiE, -loE];
 
     var area = this.sailArea();
     var q = 0.5 * U.RHO_AIR * this.aws * this.aws;
@@ -286,7 +318,12 @@
     var self = this;
 
     function addSail(A, saDeg, xPos, which) {
-      if (A <= 0.01) return;
+      var st2 = which === 'm' ? self.sailState.main : self.sailState.jib;
+      if (A <= 0.01) {
+        st2.backed = false; st2.luff = 0; st2.stall = 0; st2.aoa = 0;
+        st2.trim = which === 'm' ? 'stowed' : 'furled';
+        return;
+      }
       var sa = U.rad(saDeg);
       var d = { x: -Math.cos(sa), y: Math.sin(sa) };            // mast towards clew
       var cosA = d.x * wt.x + d.y * wt.y;
@@ -309,17 +346,24 @@
              pushes the wrong way, which is how you come out of irons. */
       var setSide = saDeg >= 0 ? 1 : -1;
       var eased = Math.abs(saDeg);
-      var backed = setSide === windSide;
+      /* Backed is geometry, not which side the wind is nominally on: it is
+         the pressure landing on the face that pushes the sail back across
+         the boat. (sinA ≡ sin(sheet + awa); its sign is the side the cloth
+         bellies to.) A sail squared out on a run stays honest either side
+         of dead astern, which is what lets her run by the lee and carry a
+         goose-winged headsail. */
+      var backed = sgn === setSide;
       var overEased = !backed && eased > aAbs - 2;
       /* Air has to arrive at the luff and leave at the leech. Coming at the
          leech instead — a main strapped amidships on a run — the sail is
          backwinded and does nothing but flap. Square to the wind there is no
          leading edge at all: the sail is simply a drag device, and works. */
-      var backwind = (wt.x * d.x + wt.y * d.y) < 0.02 ? U.clamp((60 - aoa) / 15, 0, 1) : 0;
+      var backwind = (wt.x * d.x + wt.y * d.y) < 0.02 ? U.clamp((40 - aoa) / 12, 0, 1) : 0;
       var luff;
       if (overEased) luff = U.clamp((eased - aAbs + 2) / 9, 0, 1);
-      else luff = aoa < 7 ? U.clamp((7 - aoa) / 7, 0, 1) : 0;
+      else luff = aoa < 11 ? U.clamp((11 - aoa) / 11, 0, 1) : 0;
       luff = Math.max(luff, backwind);
+      if (which === 'j' && self._jibCross) luff = Math.max(luff, 0.9);  // flogging her way across
       var scale = (1 - luff * 0.96) * quality * heelF * (backed ? 0.45 : 1);
       var c = coeffs(aoa);
       var L = q * A * c.cl * scale, Dg = q * A * c.cd * scale;
@@ -327,9 +371,15 @@
       drive += fx; sideBody += fy; sailLateral += fy;
       yawSail += xPos * fy;
       if (which === 'm') self.luffMain = luff; else self.luffJib = luff;
+      st2.sgn = sgn; st2.backed = backed; st2.luff = luff;
+      st2.stall = c.stall; st2.aoa = aoa;
+      st2.trim = trimClass(backed, luff, c.stall);
     }
     addSail(area.main, this.boomAngle, this.xMain, 'm');
-    addSail(area.jib, this.jibAngle, this.xJib, 'j');
+    /* the jib sheet leads to the rail: the clew cannot come inside ~8° of
+       the centreline however hard you winch */
+    var jibEff = this.jibAngle >= 0 ? Math.max(this.jibAngle, 8) : Math.min(this.jibAngle, -8);
+    addSail(area.jib, jibEff, this.xJib, 'j');
     yawSail -= this.xCLR * sailLateral;      /* hull lateral reaction at the CLR */
 
     /* windage on hull and rig (§6) — the bow presents far less area than the side.
@@ -428,11 +478,16 @@
             var slip = Math.min((want - hold) / Math.max(1, hold) * dt * 0.9, this.sog * dt);
             anc.x += (this.x - anc.x) / adist * slip;
             anc.y += (this.y - anc.y) / adist * slip;
-            /* only call it dragging when she is actually losing ground */
-            if (slip > 0.0015) {
+            /* only call it dragging when she is actually losing ground —
+               snubbed hard but holding, the load is working the anchor IN.
+               (The threshold is a speed, so it scales with the step size.) */
+            if (slip > 0.03 * dt) {
               anc.dragging = Math.min(1, anc.dragging + dt * 0.4);
               anc.set = Math.max(0, anc.set - dt * 0.25);
-            } else anc.dragging = Math.max(0, anc.dragging - dt * 0.3);
+            } else {
+              anc.dragging = Math.max(0, anc.dragging - dt * 0.3);
+              anc.set = Math.min(1, anc.set + dt * 0.02);
+            }
           } else {
             anc.dragging = Math.max(0, anc.dragging - dt * 0.5);
             /* she digs herself in as she lies to the chain; going astern on
@@ -487,7 +542,10 @@
 
     /* --- heel (§6) --- */
     var righting = m * U.G * s.gm_m;
-    var hTarget = Math.atan2(Math.abs(sideBody) * s.ce_height_m, righting) * (sideBody > 0 ? 1 : -1);
+    /* the heeling couple works over the whole arm from the sails' centre of
+       effort down to the keel resisting underneath, not just to the deck */
+    var heelArm = s.ce_height_m + 0.6 * this.draft() + 2.2;
+    var hTarget = Math.atan2(Math.abs(sideBody) * heelArm, righting) * (sideBody > 0 ? 1 : -1);
     this.heel += (hTarget - this.heel) * Math.min(1, dt / 1.3);
     this.roll = Math.sin(E.t * 6.28 / Math.max(2.2, sea.period)) * sea.hs * 0.045 +
                 Math.sin(E.t * 1.7 + 1.3) * sea.hs * 0.02;
@@ -506,7 +564,7 @@
       this.mainHoist = U.approach(this.mainHoist, this._hoistTo, 1 / HOIST_TIME, dt);
       if (this.mainHoist === this._hoistTo) delete this._hoistTo;
     }
-    if (this._furlTo !== undefined && !this._jibSwap) {
+    if (this._furlTo !== undefined) {
       this.jibOut = U.approach(this.jibOut, this._furlTo, 1 / FURL_TIME, dt);
       if (this.jibOut === this._furlTo) delete this._furlTo;
     }
@@ -559,14 +617,17 @@
       var lf = Math.max(this.luffMain, this.luffJib);
       var flog = lf > 0.3 ? (lf - 0.3) * (awsKn - 11) : 0;
       if (flog > 0) this.damage.sails = Math.min(1, this.damage.sails + flog * flog * dt * 0.0000055);
-      /* crash gybe: the boom comes across loaded, and something has to give */
+      /* crash gybe: the boom comes across loaded, and something has to give.
+         Sheeted hard amidships first, it barely travels: a clean gybe. */
       if (this._prevBoom !== undefined && this.boomAngle * this._prevBoom < 0 &&
           Math.abs(this.boomAngle - this._prevBoom) > 3 && Math.abs(this.awa) > 115) {
-        var shock = (awsKn - 11) / 22;
+        var arc = U.clamp((Math.abs(this.mainSheet) * 2 - 25) / 60, 0, 1);
+        var shock = (awsKn - 11) / 22 * arc;
         if (shock > 0) {
           this.damage.rig = Math.min(1, this.damage.rig + shock * 0.085);
           this.damage.sails = Math.min(1, this.damage.sails + shock * 0.045);
           this.gybeShock = shock;
+          this.sailState.event = { type: 'crashGybe', t: E.t };
         }
       }
       /* slamming into a head sea works the whole rig */
@@ -696,7 +757,19 @@
   };
 
   /* ---------- player commands ---------- */
-  Vessel.prototype.hoistMain = function (up) { this._hoistTo = up ? 1 : 0; };
+  Vessel.prototype.hoistMain = function (up) {
+    if (up && this.mainHoist < 0.05) {
+      /* the crew set the boom to leeward before the sail goes up — nobody
+         hoists a main against a backed boom by accident */
+      if (Math.abs(this.awa) > 4) {
+        var lee = this.awa >= 0 ? -1 : 1;
+        this.mainSheet = lee * Math.abs(this.mainSheet);
+        this.sheetsHanded = true;
+      }
+      this.boomAngle = this.mainSheet;
+    }
+    this._hoistTo = up ? 1 : 0;
+  };
   Vessel.prototype.setReef = function (n) {
     n = U.clamp(n, 0, this.spec.reefs);
     if (n === this.mainReef || this._reefing > 0) return false;
@@ -706,6 +779,15 @@
   };
   Vessel.prototype.setJib = function (frac) {
     if (!this.has('furler')) frac = frac > 0.05 ? 1 : 0;
+    if (frac > 0.05 && this.jibOut < 0.05) {
+      /* setting from furled: sheeted to leeward, like the main */
+      if (Math.abs(this.awa) > 4) {
+        var lee = this.awa >= 0 ? -1 : 1;
+        this.jibSheet = lee * Math.abs(this.jibSheet);
+        this.sheetsHanded = true;
+      }
+      this.jibAngle = this.jibSheet;
+    }
     this._furlTo = U.clamp(frac, 0, 1);
   };
   Vessel.prototype.startEngine = function () {
@@ -796,6 +878,8 @@
       v.jibOut = U.clamp(num(o.sails.jib, 0), 0, 1);
       v.mainSheet = U.clamp(num(o.sails.ms, -55), -85, 85);
       v.jibSheet = U.clamp(num(o.sails.js, -55), -85, 85);
+      /* she was sailing when saved: the boom is where the sheet left it */
+      v.boomAngle = v.mainSheet; v.jibAngle = v.jibSheet;
     }
     return v;
   };

@@ -290,12 +290,13 @@
   }
 
   /* ---------- the boat ---------- */
-  /** a sail seen from above: a curved surface with belly, not a flat triangle */
-  function sailShape(tx, ty, cx, cy, belly, thick, luff, t) {
+  /** a sail seen from above: a curved surface with belly, not a flat triangle.
+      st is the sail's physics state {luff, stall, backed} — when the boat is
+      drawn big enough it grows telltales that read from it. */
+  function sailShape(tx, ty, cx, cy, belly, thick, luff, t, st) {
     var dx = cx - tx, dy = cy - ty, len = U.len(dx, dy);
     if (len < 0.5) return;
     var nx = -dy / len, ny = dx / len;            // perpendicular
-    if (nx * belly + ny * belly === 0) { /* keep sign handling explicit below */ }
     var mx = (tx + cx) / 2, my = (ty + cy) / 2;
     var flap = luff > 0.15 ? Math.sin(t * 16) * luff * len * 0.16 : 0;
     var side = belly < 0 ? -1 : 1, mag = Math.abs(belly);
@@ -311,6 +312,38 @@
     ctx.fillStyle = g; ctx.fill();
     ctx.strokeStyle = 'rgba(52,64,70,.85)'; ctx.lineWidth = Math.max(0.9, len * 0.022);
     ctx.stroke();
+
+    /* telltales: red to windward, green to leeward, on the drawn surface.
+       Windward lifts and spins when she luffs; leeward droops when stalled. */
+    if (st && len > 30) {
+      var cpx = mx + nx * b1, cpy = my + ny * b1;
+      var stalled = st.stall > 0.55 && !st.backed && luff < 0.2;
+      var ln = len * 0.085, lw = Math.max(0.8, len * 0.013);
+      for (var k = 0; k < 2; k++) {
+        var u = k === 0 ? 0.38 : 0.72, iu = 1 - u;
+        var px = iu * iu * tx + 2 * u * iu * cpx + u * u * cx;
+        var py = iu * iu * ty + 2 * u * iu * cpy + u * u * cy;
+        var tvx = iu * (cpx - tx) + u * (cx - cpx);          // tangent, luff -> leech
+        var tvy = iu * (cpy - ty) + u * (cy - cpy);
+        var tl = U.len(tvx, tvy) || 1; tvx /= tl; tvy /= tl;
+        var qx = -tvy, qy = tvx;                             // curve normal
+        var out = (qx * nx + qy * ny) * side >= 0 ? 1 : -1;  // towards the belly (leeward)
+        var flick = luff > 0.12 ? Math.sin(t * 15 + k * 2.1) * (0.7 + luff) : 0;
+        ctx.lineWidth = lw;
+        ctx.beginPath();                                      // windward, red
+        var wx = px - qx * out * len * 0.02, wy = py - qy * out * len * 0.02;
+        ctx.moveTo(wx, wy);
+        ctx.lineTo(wx + (tvx - qx * out * flick) * ln, wy + (tvy - qy * out * flick) * ln);
+        ctx.strokeStyle = 'rgba(226,74,64,.95)'; ctx.stroke();
+        ctx.beginPath();                                      // leeward, green
+        var gx = px + qx * out * len * 0.02, gy = py + qy * out * len * 0.02;
+        var droop = stalled ? 0.85 + 0.35 * Math.sin(t * 6 + k) : 0;
+        ctx.moveTo(gx, gy);
+        ctx.lineTo(gx + (tvx * (1 - droop) + qx * out * droop) * ln,
+                   gy + (tvy * (1 - droop) + qy * out * droop) * ln);
+        ctx.strokeStyle = 'rgba(88,204,106,.95)'; ctx.stroke();
+      }
+    }
   }
 
   function drawBoat(v, t) {
@@ -318,11 +351,18 @@
     var loaPx = Math.max(46, v.spec.loa_m * R.cam.scale);
     var k = loaPx / v.spec.loa_m;                 // px per metre for the boat symbol
     var L = v.spec.loa_m * k, B = v.spec.beam_m * k;
-    var heel = v.heel + v.roll;
-    var mastY = -L * 0.08;
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(v.hdg);                            // +y is now astern
+    drawBoatLocal(v, t, L, B);
+    ctx.restore();
+  }
+
+  /** hull, sails, rudder and burgee in the boat's own frame (+y astern).
+      Used at world scale by drawBoat, and magnified by the sail inset. */
+  function drawBoatLocal(v, t, L, B) {
+    var heel = v.heel + v.roll;
+    var mastY = -L * 0.08;
 
     /* heel: the deck foreshortens and the hull leans to leeward */
     var hs = Math.cos(heel);
@@ -359,16 +399,21 @@
     ctx.ellipse(0, L * 0.30, B * 0.19, L * 0.10, 0, 0, U.TAU);
     ctx.fillStyle = '#42525a'; ctx.fill();
 
-    /* sails — drawn where the boom actually is, not where the sheet is set */
+    /* sails — drawn where the boom actually is, not where the sheet is set.
+       The cloth bellies to the low-pressure side the physics computed, so a
+       drawing sail bellies to leeward and a backed one bellies inboard. */
     var area = v.sailArea();
+    var sst = v.sailState;
     if (area.jib > 0.05) {
       var js = U.rad(v.jibAngle);
+      var jSgn = sst ? sst.jib.sgn : ((Math.sin(U.rad(v.jibAngle + v.awa)) >= 0) ? 1 : -1);
       var jl = L * 0.40 * (0.45 + 0.55 * v.jibOut);
       var jcx = Math.sin(js) * jl, jcy = -L * 0.44 + Math.cos(js) * jl;
-      sailShape(0, -L * 0.48, jcx, jcy, (js >= 0 ? 1 : -1) * jl * 0.46, 0.30, v.luffJib, t);
+      sailShape(0, -L * 0.48, jcx, jcy, jSgn * jl * 0.46, 0.30, v.luffJib, t, sst && sst.jib);
     }
     if (area.main > 0.05) {
       var ms = U.rad(v.boomAngle);
+      var mSgn = sst ? sst.main.sgn : ((Math.sin(U.rad(v.boomAngle + v.awa)) >= 0) ? 1 : -1);
       var boom = L * 0.46 * (1 - 0.15 * v.mainReef);
       var mcx = Math.sin(ms) * boom, mcy = mastY + Math.cos(ms) * boom;
       /* boom */
@@ -376,7 +421,7 @@
       ctx.moveTo(0, mastY); ctx.lineTo(mcx, mcy);
       ctx.strokeStyle = '#585d5a'; ctx.lineWidth = Math.max(1.2, L * 0.024);
       ctx.lineCap = 'round'; ctx.stroke();
-      sailShape(0, mastY, mcx, mcy, (ms >= 0 ? 1 : -1) * boom * 0.50, 0.28, v.luffMain, t);
+      sailShape(0, mastY, mcx, mcy, mSgn * boom * 0.50, 0.28, v.luffMain, t, sst && sst.main);
     }
     /* mast */
     ctx.beginPath(); ctx.arc(0, mastY, Math.max(1.6, L * 0.026), 0, U.TAU);
@@ -384,25 +429,76 @@
     ctx.strokeStyle = '#5b6168'; ctx.lineWidth = 1; ctx.stroke();
     ctx.restore();
 
-    /* rudder */
+    /* rudder — helm to starboard cocks the blade's trailing edge to starboard */
     ctx.save();
     ctx.translate(0, L * 0.45);
-    ctx.rotate(U.rad(v.rudder));
+    ctx.rotate(-U.rad(v.rudder));
     ctx.fillStyle = '#2f3d45';
     ctx.fillRect(-L * 0.014, 0, L * 0.028, L * 0.11);
     ctx.restore();
 
-    /* masthead burgee — points with the apparent wind */
+    /* masthead burgee — a pennant streams away downwind */
     ctx.save();
     ctx.translate(0, mastY);
-    ctx.rotate(U.rad(v.awa) + Math.PI);
+    ctx.rotate(U.rad(v.awa));
     ctx.fillStyle = '#f2b134';
     ctx.beginPath();
     ctx.moveTo(0, 0); ctx.lineTo(-L * 0.045, L * 0.17); ctx.lineTo(L * 0.045, L * 0.17);
     ctx.closePath(); ctx.fill();
     ctx.restore();
+  }
 
+  /** day-charter bays: the circle the guests want to swing in (world view) */
+  function drawTourBays() {
+    var p = S.Game && S.Game.player;
+    if (!p || !p.contracts || !p.contracts.length) return;
+    p.contracts.forEach(function (c) {
+      if (!c.tour) return;
+      var tx = sx(c.tour.x), ty = sy(c.tour.y), tr = c.tour.r * R.cam.scale;
+      if (tx < -tr || ty < -tr || tx > cw + tr || ty > ch + tr) return;
+      ctx.strokeStyle = c.tour.done ? 'rgba(99,212,113,.5)' : 'rgba(200,110,200,.55)';
+      ctx.setLineDash([9, 7]); ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.arc(tx, ty, Math.max(8, tr), 0, U.TAU); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
+  /** a magnified live view of your own rig — the boat is small on screen,
+      the trim should not be (§15 visible feedback) */
+  function drawSailInset(v, t) {
+    var area = v.sailArea();
+    if (area.total <= 0.05) return;
+    var box = Math.min(132, Math.max(104, cw * 0.14));
+    var x0 = 8, y0 = 46;
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0, y0, box, box, 10);
+    else ctx.rect(x0, y0, box, box);
+    ctx.fillStyle = 'rgba(7,22,29,.72)'; ctx.fill();
+    ctx.strokeStyle = '#1b3c4c'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.clip();
+    /* the boat, heading-up, filling the box */
+    ctx.save();
+    ctx.translate(x0 + box / 2, y0 + box / 2 + box * 0.04);
+    var L = box * 0.74, B = L * (v.spec.beam_m / v.spec.loa_m);
+    drawBoatLocal(v, t, L, B);
     ctx.restore();
+    /* the apparent wind, blowing in from the rim */
+    var aw = U.rad(v.awa);
+    ctx.save();
+    ctx.translate(x0 + box / 2, y0 + box / 2);
+    ctx.rotate(aw);
+    ctx.fillStyle = '#f2b134';
+    ctx.beginPath();
+    ctx.moveTo(0, -box * 0.34);
+    ctx.lineTo(-5, -box * 0.34 - 10);
+    ctx.lineTo(5, -box * 0.34 - 10);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+    ctx.fillStyle = '#6c93a6'; ctx.font = '8px ui-monospace,Menlo,monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('RIG', x0 + 7, y0 + 5);
   }
 
   /* anchor, chain and the circle she can swing through */
@@ -537,6 +633,7 @@
       ctx.fillText(other.spec.name, ox, oy + 34);
     }
 
+    drawTourBays();
     drawGroundTackle(v);
     drawWake(v, t);
     drawBoat(v, t);
@@ -551,6 +648,7 @@
     }
 
     drawWeather(t, wx, night, sx(v.x), sy(v.y));
+    drawSailInset(v, t);
   };
 
   R.pushWake = function (v) {

@@ -70,9 +70,10 @@
         region: (W.rasterAt(h.lon, h.lat) || {}).name || '',
         r: big ? 240 : 170,
         berth: 8 + Math.round((big ? 16 : 8) * (0.6 + 0.8 * ((i * 37) % 10) / 10)),
-        fuel: (i % 5 === 0 || big) ? 0.95 : 0,
-        yard: (i % 11 === 0),
-        chandler: (i % 3 === 0 || big),
+        /* every proper marina sells fuel, kit and boats; smaller havens vary */
+        fuel: (big || i % 4 === 0) ? 0.95 : 0,
+        yard: (big || i % 7 === 0),
+        chandler: (big || i % 3 === 0),
         size: big ? 0.9 : 0.55,
         desc: ''
       };

@@ -1,5 +1,5 @@
 /* sw.js — offline cache. Bump ASSET_V here and in index.html together. */
-var ASSET_V = '8';
+var ASSET_V = '12';
 var CACHE = 'ohh-ship-v' + ASSET_V;
 var ASSETS = [
   './',
@@ -37,8 +37,8 @@ var ASSETS = [
   './data/regions/dart.png',
   './data/regions/scilly.png',
   './data/regions/belfast.png'
-].concat(['util', 'data', 'world', 'environment', 'vessel', 'economy', 'education',
-          'render', 'chart', 'instruments', 'ui', 'game', 'geo', 'tide', 'atlas']
+].concat(['util', 'data', 'polars', 'world', 'environment', 'vessel', 'economy', 'education',
+          'render', 'chart', 'instruments', 'ui', 'coach', 'game', 'geo', 'tide', 'atlas']
   .map(function (n) { return './js/' + n + '.js?v=' + ASSET_V; }));
 
 self.addEventListener('install', function (e) {

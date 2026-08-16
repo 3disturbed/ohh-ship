@@ -56,8 +56,27 @@
       st.luffTime += dt; if (st.luffTime > 9) unlock(player, 'sail_trim', ui);
     } else st.luffTime = Math.max(0, st.luffTime - dt);
 
+    /* --- telltales: both sails kept drawing for a solid spell --- */
+    if (sailing && v.sailState && v.sailState.main.trim === 'drawing' &&
+        (v.jibOut < 0.05 || v.sailState.jib.trim === 'drawing') && r.stw > 1.0) {
+      st.drawTime = (st.drawTime || 0) + dt;
+      if (st.drawTime > 60) unlock(player, 'telltales', ui);
+    }
+
+    /* --- voyage-quality stats, for the passage debrief --- */
+    if (sailing) {
+      player.stats.sailTime = (player.stats.sailTime || 0) + dt;
+      if (v.eff > 0.75) player.stats.effTime = (player.stats.effTime || 0) + dt;
+    }
+
     /* --- apparent wind: the numbers visibly disagree --- */
     if (sailing && Math.abs(r.aws - r.tws) > 2.6 && r.stw > 1.5) unlock(player, 'apparent_wind', ui);
+
+    /* --- VMG: beating for a waypoint that lies to windward --- */
+    if (sailing && v.waypoint && awa < 60 && r.stw > 1.5) {
+      st.vmgTime = (st.vmgTime || 0) + dt;
+      if (st.vmgTime > 30) unlock(player, 'vmg', ui);
+    }
 
     /* --- speed through water is not speed over ground --- */
     if (Math.abs(r.stw - r.sog) > 0.45 && r.sog > 0.3) {
@@ -68,6 +87,13 @@
 
     /* --- leeway --- */
     if (sailing && Math.abs(v.leeway) > 4.5 && r.stw > 1.2) unlock(player, 'leeway', ui);
+
+    /* --- hove to: jib backed, main drawing or eased, and she has stopped --- */
+    if (sailing && v.sailState && v.sailState.jib.trim === 'backed' &&
+        !v.sailState.main.backed && r.stw < 1.0 && awa > 30 && awa < 100) {
+      st.hoveTime = (st.hoveTime || 0) + dt;
+      if (st.hoveTime > 30) unlock(player, 'heaveto', ui);
+    } else st.hoveTime = 0;
 
     /* --- overpowered --- */
     if (Math.abs(r.heel) > 24) { st.heelTime += dt; if (st.heelTime > 12) { unlock(player, 'reefing', ui); } }

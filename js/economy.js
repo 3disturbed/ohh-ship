@@ -110,6 +110,74 @@
     };
   }
 
+  /** a day charter: guests want taking to a quiet bay, an afternoon at
+      anchor, and bringing home again (§32 — tourism) */
+  function makeTour(rng, origin, seedKey, player) {
+    /* Look for a bay: shallow enough to anchor at SOME state of tide, land
+       in sight, clear of harbours — then take the quietest water on offer.
+       (In a hard tideway like the Menai the "quiet" is relative, and picking
+       the slack of it is part of the job.) */
+    var spot = null, bestStream = Infinity;
+    for (var tries = 0; tries < 90; tries++) {
+      var ang = rng() * U.TAU, dist = (2.5 + rng() * 5.5) * U.NM;
+      var x = origin.x + Math.sin(ang) * dist, y = origin.y - Math.cos(ang) * dist;
+      var d = W.getChartedDepth(x, y);
+      /* deep enough to stay afloat at a big low water, shallow enough for
+         the boat's own ground tackle with tide and bow roller on top */
+      var maxD = (S.Game && S.Game.vessel ? S.Game.vessel.maxAnchorDepth() : 9) - 3.5;
+      if (d < 2.2 || d > Math.min(9, maxD)) continue;
+      /* and the whole swinging circle must be water, not bank */
+      var bankNear = false;
+      for (var sw = 0; sw < 6 && !bankNear; sw++)
+        if (W.getChartedDepth(x + Math.sin(sw * 1.047) * 70, y - Math.cos(sw * 1.047) * 70) < 1.8) bankNear = true;
+      if (bankNear) continue;
+      if (W.nearestPort(x, y).dist < 1200) continue;
+      var worst = 0;
+      for (var q = 0; q < 4; q++) {
+        var cs = E.current(x, y, E.t + q * 5589);
+        worst = Math.max(worst, U.len(cs.x, cs.y));
+      }
+      if (worst > 3.2 * U.KN) continue;   // only rule out genuinely wild water
+      var shore = false;
+      for (var a = 0; a < 8 && !shore; a++)
+        if (W.getChartedDepth(x + Math.sin(a * 0.785) * 2000, y - Math.cos(a * 0.785) * 2000) < 0) shore = true;
+      if (!shore) continue;
+      if (worst < bestStream) {
+        bestStream = worst;
+        spot = { x: Math.round(x), y: Math.round(y) };
+      }
+    }
+    if (!spot) return null;
+    /* the stay must fit the bay's tidal window: quiet water invites a long
+       afternoon, a hard tideway gets a short stop around slack */
+    var hours = bestStream < 1.2 * U.KN ? 2 + Math.round(rng() * 2)
+              : bestStream < 2.2 * U.KN ? 1 + Math.round(rng())
+              : 1;
+    var heads = 1 + Math.floor(rng() * 4);
+    var mass = heads * 85;
+    var nm = U.len(spot.x - origin.x, spot.y - origin.y) / U.NM * 2;   // out and home
+    var dur = nm / 3.2 * 3600 * 1.7 + hours * 3600;
+    var rep = player ? player.reputation : 20;
+    var reward = (70 + mass * 0.85 + nm * 20 + hours * 34) * (0.86 + rep / 100 * 0.5);
+    return {
+      id: seedKey,
+      tour: { x: spot.x, y: spot.y, r: 500, staySec: hours * 3600, stayed: 0, done: false },
+      origin: origin.id, dest: origin.id, type: 'passenger',
+      mass: mass, volume: Math.round(mass / D.CARGO.passenger.dens * 100) / 100,
+      /* guests book around the tide: allow a full cycle to catch the window */
+      deadline: E.t + dur + 13 * 3600,
+      reward: Math.round(reward / 5) * 5,
+      latePerMin: Math.max(0.6, Math.round(reward * 0.0014 * 10) / 10),
+      fuelBonus: Math.round(reward * 0.12 / 5) * 5,
+      fuelAllowance: Math.max(0.5, Math.round(0.1 * nm * 10) / 10),
+      earlyBonus: 0, repReward: Math.round((2 + hours * 0.8) * 10) / 10,
+      risk: 0, urgent: false,
+      round: false, stage: 1, ashore: 0, homePort: origin.id,
+      fridge: false, sensitive: true,      // their day out IS the cargo condition
+      nm: nm
+    };
+  }
+
   /** the contract board at a harbour for the current four-hour slot */
   Ec.offers = function (port, player) {
     var slot = Math.floor(E.t / Ec.SLOT);
@@ -132,7 +200,16 @@
       if (player.contracts.some(function (a) { return a.id === c.id; })) continue;
       list.push(c);
     }
+    /* most boards carry a day charter — the tourist trade is steady work */
+    if (rng() < 0.65) {
+      var tc = makeTour(rng, port, key + '#tour', player);
+      if (tc && player.done.indexOf(tc.id) < 0 &&
+          !player.contracts.some(function (a) { return a.id === tc.id; })) list.push(tc);
+    }
     list.sort(function (a, b) { return a.nm - b.nm; });
+    /* a brand-new skipper always finds one short, forgiving job on the board */
+    var first = S.Coach && S.Coach.firstOffer ? S.Coach.firstOffer(port, player) : null;
+    if (first && player.done.indexOf(first.id) < 0) list.unshift(first);
     Ec._cache = { key: key, list: list };
     return list;
   };

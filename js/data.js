@@ -11,6 +11,17 @@
      ======================================================================= */
   D.VESSELS = [
     {
+      id: 'corribee', name: 'Newbridge Corribee 21', tier: 1,
+      blurb: 'Tiny, tough and everywhere on this coast. She will teach you more per pound than anything afloat.',
+      loa_m: 6.40, lwl_m: 5.49, beam_m: 2.06, base_draft_m: 0.76,
+      displacement_kg: 750, max_payload_kg: 200, cargo_volume_m3: 0.9,
+      fuel_capacity_l: 10, engine_kw: 3,
+      sail_area_main_m2: 7.4, sail_area_headsail_m2: 6.1, reefs: 1,
+      rudder_area_m2: 0.18, gm_m: 0.80, ce_height_m: 2.4, windage_m2: 2.5,
+      chain_m: 20, anchor_kg: 5, bilge: true,
+      price: 2900, berth: 3
+    },
+    {
       id: 'drascombe', name: 'Drascombe Lugger', tier: 1,
       blurb: 'An open beach boat, yawl rigged. Draws almost nothing with the plate up, carries almost nothing, and gets very wet.',
       loa_m: 5.72, lwl_m: 5.05, beam_m: 1.90, base_draft_m: 0.28,
@@ -20,6 +31,28 @@
       rudder_area_m2: 0.22, gm_m: 0.85, ce_height_m: 2.6, windage_m2: 3,
       chain_m: 20, anchor_kg: 6, bilge: true, open: true,
       price: 4200, berth: 4
+    },
+    {
+      id: 'achilles24', name: 'Achilles 24', tier: 1,
+      blurb: 'A slippery little cruiser-racer. Carries almost nothing, sails rings round everything her size.',
+      loa_m: 7.32, lwl_m: 5.94, beam_m: 2.18, base_draft_m: 1.09,
+      displacement_kg: 1130, max_payload_kg: 300, cargo_volume_m3: 1.6,
+      fuel_capacity_l: 12, engine_kw: 4,
+      sail_area_main_m2: 9.5, sail_area_headsail_m2: 8.5, reefs: 1,
+      rudder_area_m2: 0.25, gm_m: 0.85, ce_height_m: 2.9, windage_m2: 3.5,
+      chain_m: 25, anchor_kg: 6,
+      price: 5200, berth: 5
+    },
+    {
+      id: 'contessa26', name: 'Contessa 26', tier: 2,
+      blurb: 'Narrow, wet and utterly seaworthy. A boat this size has been sailed round the world more than once.',
+      loa_m: 7.77, lwl_m: 6.10, beam_m: 2.29, base_draft_m: 1.22,
+      displacement_kg: 2450, max_payload_kg: 350, cargo_volume_m3: 2.0,
+      fuel_capacity_l: 20, engine_kw: 7,
+      sail_area_main_m2: 10.9, sail_area_headsail_m2: 11.9, reefs: 2,
+      rudder_area_m2: 0.30, gm_m: 0.85, ce_height_m: 3.2, windage_m2: 4,
+      chain_m: 30, anchor_kg: 10,
+      price: 8500, berth: 6
     },
     {
       id: 'centaur', name: 'Westerly Centaur', tier: 2,
@@ -33,6 +66,17 @@
       price: 9800, berth: 8
     },
     {
+      id: 'colvic286', name: 'Colvic Sailer 28\'6', tier: 3,
+      blurb: 'The family motor-sailer half this coast learned on. Roomy, sensible, happy on the mud, and she motors like she means it.',
+      loa_m: 8.69, lwl_m: 7.01, beam_m: 2.90, base_draft_m: 1.07,
+      displacement_kg: 3600, max_payload_kg: 800, cargo_volume_m3: 4.8,
+      fuel_capacity_l: 68, engine_kw: 20,
+      sail_area_main_m2: 14.0, sail_area_headsail_m2: 12.0, reefs: 2,
+      rudder_area_m2: 0.50, gm_m: 1.10, ce_height_m: 3.8, windage_m2: 10,
+      chain_m: 40, anchor_kg: 14, bilge: true,
+      price: 12800, berth: 9
+    },
+    {
       id: 'crabber', name: 'Cornish Crabber 24', tier: 3,
       blurb: 'Gaff cutter with a lifting plate. Slower to windward than she looks, lovely everywhere else, and she can creep anywhere.',
       loa_m: 7.32, lwl_m: 6.50, beam_m: 2.59, base_draft_m: 0.91,
@@ -42,6 +86,28 @@
       rudder_area_m2: 0.40, gm_m: 1.00, ce_height_m: 3.9, windage_m2: 8,
       chain_m: 30, anchor_kg: 12, bilge: true,
       price: 14500, berth: 10
+    },
+    {
+      id: 'sadler29', name: 'Sadler 29', tier: 3,
+      blurb: 'Foam-cored and famously unsinkable. Stiff, kindly, and quick enough to surprise bigger boats to windward.',
+      loa_m: 8.84, lwl_m: 7.01, beam_m: 2.87, base_draft_m: 1.40,
+      displacement_kg: 3400, max_payload_kg: 700, cargo_volume_m3: 3.8,
+      fuel_capacity_l: 45, engine_kw: 13,
+      sail_area_main_m2: 15.2, sail_area_headsail_m2: 15.7, reefs: 2,
+      rudder_area_m2: 0.50, gm_m: 1.05, ce_height_m: 3.9, windage_m2: 8,
+      chain_m: 35, anchor_kg: 12,
+      price: 15900, berth: 9
+    },
+    {
+      id: 'konsort29', name: 'Westerly Konsort 29', tier: 3,
+      blurb: 'The Centaur\'s bigger sister: twin keels, standing headroom, and a hold that swallows a week\'s cargo.',
+      loa_m: 8.84, lwl_m: 7.47, beam_m: 3.05, base_draft_m: 1.00,
+      displacement_kg: 4100, max_payload_kg: 950, cargo_volume_m3: 5.5,
+      fuel_capacity_l: 55, engine_kw: 21,
+      sail_area_main_m2: 14.5, sail_area_headsail_m2: 17.5, reefs: 2,
+      rudder_area_m2: 0.55, gm_m: 1.15, ce_height_m: 4.0, windage_m2: 10,
+      chain_m: 40, anchor_kg: 14, bilge: true,
+      price: 17500, berth: 10
     },
     {
       id: 'catalina30', name: 'Catalina 30', tier: 4,
@@ -55,6 +121,28 @@
       price: 23500, berth: 14
     },
     {
+      id: 'contessa32', name: 'Contessa 32', tier: 4,
+      blurb: 'The one that came home from the \'79 Fastnet. Points high, tracks like a train, and never frightens her crew.',
+      loa_m: 9.75, lwl_m: 7.32, beam_m: 2.90, base_draft_m: 1.68,
+      displacement_kg: 4300, max_payload_kg: 800, cargo_volume_m3: 4.6,
+      fuel_capacity_l: 60, engine_kw: 15,
+      sail_area_main_m2: 16.9, sail_area_headsail_m2: 18.5, reefs: 2,
+      rudder_area_m2: 0.60, gm_m: 1.00, ce_height_m: 4.4, windage_m2: 9,
+      chain_m: 40, anchor_kg: 16,
+      price: 26500, berth: 11
+    },
+    {
+      id: 'moody31', name: 'Moody 31', tier: 4,
+      blurb: 'Centre cockpit, aft cabin, and space below that boats ten feet longer would envy. A proper little ship.',
+      loa_m: 9.60, lwl_m: 7.90, beam_m: 3.28, base_draft_m: 1.35,
+      displacement_kg: 4800, max_payload_kg: 1100, cargo_volume_m3: 7.0,
+      fuel_capacity_l: 90, engine_kw: 20,
+      sail_area_main_m2: 15.3, sail_area_headsail_m2: 19.8, reefs: 2,
+      rudder_area_m2: 0.65, gm_m: 1.18, ce_height_m: 4.4, windage_m2: 12,
+      chain_m: 45, anchor_kg: 16,
+      price: 29500, berth: 12
+    },
+    {
       id: 'moody336', name: 'Moody 336', tier: 5,
       blurb: 'A proper cruising yacht. Fast, dry, well found, and she will carry a tonne and a half without noticing.',
       loa_m: 10.06, lwl_m: 8.38, beam_m: 3.45, base_draft_m: 1.52,
@@ -64,6 +152,17 @@
       rudder_area_m2: 0.78, gm_m: 1.20, ce_height_m: 5.0, windage_m2: 15,
       chain_m: 50, anchor_kg: 20,
       price: 38000, berth: 18
+    },
+    {
+      id: 'nicholson35', name: 'Nicholson 35', tier: 5,
+      blurb: 'A gentleman\'s offshore cruiser. Heavy, powerful, and utterly composed when the forecast goes wrong.',
+      loa_m: 10.67, lwl_m: 8.10, beam_m: 3.20, base_draft_m: 1.68,
+      displacement_kg: 7300, max_payload_kg: 1600, cargo_volume_m3: 9.8,
+      fuel_capacity_l: 136, engine_kw: 27,
+      sail_area_main_m2: 22.0, sail_area_headsail_m2: 26.0, reefs: 3,
+      rudder_area_m2: 0.80, gm_m: 1.15, ce_height_m: 4.9, windage_m2: 14,
+      chain_m: 55, anchor_kg: 20,
+      price: 44500, berth: 16
     },
     {
       id: 'colvic34', name: 'Colvic Watson 34', tier: 6,
@@ -207,8 +306,19 @@
     {
       id: 'gybing', title: 'Gybing',
       body: '<p>A gybe turns the stern through the wind. The mainsail crosses the boat, and downwind it crosses <b>fast</b> and loaded.</p>' +
-        '<p>Sheet the main in towards the centreline before you turn, make the turn, then ease out on the new side. An uncontrolled gybe is the commonest way to break a boom, a rig, or a head.</p>',
-      why: 'Running dead downwind risks an accidental gybe if you wander a few degrees. Sail a little by the lee-free angle instead, and gybe deliberately.'
+        '<p>Sheet the main in towards the centreline before you turn, make the turn, then ease out on the new side. An uncontrolled gybe is the commonest way to break a boom, a rig, or a head.</p>' +
+        '<p>Sailing <b>by the lee</b> — the wind creeping round behind the boom — is the danger zone: nothing looks wrong until the boom comes across on its own.</p>',
+      diagram: svgWrap(
+        '<line x1="160" y1="12" x2="160" y2="34" class="l"/><polygon points="160,38 156,28 164,28" fill="#4fd1c5"/>' +
+        '<text x="168" y="20" class="t">wind</text>' +
+        '<path d="M105 175 A80 80 0 0 1 215 175" class="r"/>' +
+        '<text x="122" y="150" class="ta">by the lee</text>' +
+        '<path d="M60 120 Q160 190 260 120" class="d"/>' +
+        '<circle cx="160" cy="172" r="4" class="s"/>' +
+        '<text x="30" y="112" class="t">boom out here</text>' +
+        '<text x="216" y="112" class="t">…slams to here</text>' +
+        '<text x="96" y="192" class="t">sheet in before this point</text>', 200),
+      why: 'Running dead downwind risks an accidental gybe if you wander a few degrees. Sail a touch high of dead run, and gybe deliberately with the main sheeted home.'
     },
     {
       id: 'apparent_wind', title: 'True wind and apparent wind',
@@ -233,6 +343,46 @@
         '<b>Stalled</b> — sheet too far in for the angle, the flow separates. The boat heels more and goes slower: the classic beginner error.</p>' +
         '<p>Ease until it luffs, trim in until it fills. Repeat every time you change course or the wind shifts.</p>',
       why: 'Bad trim costs 20–40% of your speed while feeling perfectly acceptable. Over a season that is real money.'
+    },
+    {
+      id: 'telltales', title: 'Telltales',
+      body: '<p>Telltales are short ribbons on each side of the sail, and they show what the air is doing better than any instrument.</p>' +
+        '<p><b>Both streaming aft</b> — the flow is attached on both sides. The sail is working. Leave it alone.<br>' +
+        '<b>Windward telltale lifting or spinning</b> — the sail is starting to luff: sheet in a touch, or bear away.<br>' +
+        '<b>Leeward telltale drooping or swirling</b> — the flow has separated: the sail is stalled. Ease the sheet until it streams again.</p>' +
+        '<p>The habit that makes sailors fast: glance at the telltales every minute, and after every course change.</p>',
+      diagram: svgWrap(
+        '<path d="M160 20 Q205 95 172 170 L160 170 Z" fill="#efe9da" stroke="#4fd1c5" stroke-width="1.4"/>' +
+        '<line x1="150" y1="70" x2="132" y2="66" stroke="#ef5b5b" stroke-width="2"/>' +
+        '<text x="60" y="62" class="t">windward</text>' +
+        '<line x1="196" y1="74" x2="214" y2="72" stroke="#63d471" stroke-width="2"/>' +
+        '<text x="222" y="78" class="t">leeward</text>' +
+        '<line x1="149" y1="120" x2="131" y2="118" stroke="#ef5b5b" stroke-width="2"/>' +
+        '<line x1="200" y1="124" x2="218" y2="122" stroke="#63d471" stroke-width="2"/>' +
+        '<text x="70" y="188" class="t">both streaming = drawing well</text>'),
+      why: 'Telltales are the difference between trimming by guesswork and trimming by sight. They are also free.'
+    },
+    {
+      id: 'heaveto', title: 'Heaving to',
+      body: '<p>Back the jib — haul its sheet to the <b>windward</b> side — ease the main, and lash the helm down to leeward. The backed jib pushes the bow off, the main and rudder push it up, and they cancel: the boat parks, lying quietly about 60° off the wind, drifting slowly downwind.</p>' +
+        '<p>That is <b>heaving to</b>: the oldest heavy-weather trick there is, and just as useful for eating lunch, reefing in peace, or waiting for a tide gate to open.</p>' +
+        '<p>To sail on: haul the jib back across, straighten the helm, and she fills away.</p>',
+      why: 'A boat that can stop at sea without an anchor gives you time — and time is what gets crews out of trouble.'
+    },
+    {
+      id: 'vmg', title: 'VMG — velocity made good',
+      body: '<p>Boat speed is not progress. What matters is how fast you close the place you are going — <b>velocity made good</b>.</p>' +
+        '<p>Beating upwind, pointing higher <i>feels</i> better but the boat slows: pinch too hard and your VMG collapses even though the bow aims closer to the mark. ' +
+        'Foot off a few degrees, the boat accelerates, and you arrive sooner while pointing worse.</p>' +
+        '<p>The cyan bugs on the wind dial mark the best beat angle for the day. Sail on the bug, tack when headed, and watch VMG — not the compass — when deciding whether a pinch is paying.</p>',
+      diagram: svgWrap(
+        '<line x1="160" y1="12" x2="160" y2="34" class="l"/><polygon points="160,38 156,28 164,28" fill="#4fd1c5"/>' +
+        '<text x="168" y="20" class="t">wind</text>' +
+        '<circle cx="160" cy="52" r="4" class="s"/><text x="170" y="55" class="ta">mark</text>' +
+        '<line x1="160" y1="178" x2="120" y2="70" class="l"/><text x="70" y="120" class="t">fast, low</text>' +
+        '<line x1="160" y1="178" x2="152" y2="88" class="d"/><text x="196" y="120" class="t">pinching:</text>' +
+        '<text x="196" y="132" class="t">slower to</text><text x="196" y="144" class="t">the mark</text>', 195),
+      why: 'Upwind passages are won by VMG, not by pointing. Ten degrees of pinch can cost a quarter of your progress.'
     },
     {
       id: 'reefing', title: 'Reefing',

@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="css/style.css?v=8">
+<link rel="stylesheet" href="css/style.css?v=12">
 <script>
 /* Catch the install prompt before anything else loads, or it is lost. */
 window.__pwa = { prompt: null, installed: false };
@@ -64,6 +64,7 @@ if ('serviceWorker' in navigator) {
         <span id="tbTide" class="tb-chip">—</span>
       </div>
       <div class="tb-group">
+        <button id="btnSkip" class="tb-btn tb-skip hidden" title="Rest — wait for the tide">&#128336;</button>
         <button id="btnRate" class="tb-btn" title="Time acceleration">1&times;</button>
         <button id="btnChart" class="tb-btn">Chart</button>
         <button id="btnBook" class="tb-btn">Book</button>
@@ -77,10 +78,13 @@ if ('serviceWorker' in navigator) {
     <button id="btnMoor" class="moor-btn hidden">Moor alongside</button>
     <div class="side-btns">
       <button id="btnAnchor" class="round-btn" title="Ground tackle">&#9784;</button>
+      <button id="btnCoach" class="round-btn" title="Trim coach">&#9873;</button>
       <button id="btnFleet" class="round-btn hidden" title="Change vessel (Tab)">&#9973;</button>
     </div>
     <div id="anchorPanel" class="float-panel hidden"></div>
     <div id="fleetPanel" class="float-panel hidden"></div>
+    <div id="coachPanel" class="float-panel hidden"></div>
+    <div id="tidePanel" class="float-panel top hidden"></div>
     <div id="cargoTag" class="cargo-tag hidden"></div>
   </div>
 
@@ -200,20 +204,22 @@ if ('serviceWorker' in navigator) {
   </div>
 </div>
 
-<script src="js/util.js?v=8"></script>
-<script src="js/geo.js?v=8"></script>
-<script src="js/data.js?v=8"></script>
-<script src="js/tide.js?v=8"></script>
-<script src="js/world.js?v=8"></script>
-<script src="js/atlas.js?v=8"></script>
-<script src="js/environment.js?v=8"></script>
-<script src="js/vessel.js?v=8"></script>
-<script src="js/economy.js?v=8"></script>
-<script src="js/education.js?v=8"></script>
-<script src="js/render.js?v=8"></script>
-<script src="js/chart.js?v=8"></script>
-<script src="js/instruments.js?v=8"></script>
-<script src="js/ui.js?v=8"></script>
-<script src="js/game.js?v=8"></script>
+<script src="js/util.js?v=12"></script>
+<script src="js/geo.js?v=12"></script>
+<script src="js/data.js?v=12"></script>
+<script src="js/polars.js?v=12"></script>
+<script src="js/tide.js?v=12"></script>
+<script src="js/world.js?v=12"></script>
+<script src="js/atlas.js?v=12"></script>
+<script src="js/environment.js?v=12"></script>
+<script src="js/vessel.js?v=12"></script>
+<script src="js/economy.js?v=12"></script>
+<script src="js/education.js?v=12"></script>
+<script src="js/render.js?v=12"></script>
+<script src="js/chart.js?v=12"></script>
+<script src="js/instruments.js?v=12"></script>
+<script src="js/ui.js?v=12"></script>
+<script src="js/coach.js?v=12"></script>
+<script src="js/game.js?v=12"></script>
 </body>
 </html>

@@ -108,10 +108,14 @@
     ctx.fillStyle = '#07161d'; ctx.beginPath(); ctx.arc(0, 0, r + 6, 0, U.TAU); ctx.fill();
     ctx.strokeStyle = '#1b3c4c'; ctx.lineWidth = 1; ctx.stroke();
 
-    /* no-go shading */
+    /* no-go shading, and the gybe-danger band astern */
     ctx.fillStyle = 'rgba(239,91,91,.16)';
     ctx.beginPath(); ctx.moveTo(0, 0);
     ctx.arc(0, 0, r, -Math.PI / 2 - U.rad(38), -Math.PI / 2 + U.rad(38));
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(242,177,52,.12)';
+    ctx.beginPath(); ctx.moveTo(0, 0);
+    ctx.arc(0, 0, r, Math.PI / 2 - U.rad(14), Math.PI / 2 + U.rad(14));
     ctx.closePath(); ctx.fill();
 
     for (var a = 0; a < 360; a += 30) {
@@ -148,6 +152,16 @@
       ctx.moveTo(Math.sin(tw) * r * 0.92, -Math.cos(tw) * r * 0.92);
       ctx.lineTo(Math.sin(tw) * r * 0.62, -Math.cos(tw) * r * 0.62);
       ctx.stroke();
+      /* beat-angle targets: the closest useful course each side of the wind */
+      var beat = U.rad(S.POLARS ? S.POLARS.beatAt(v.tws * U.MS2KN) : 45);
+      [tw - beat, tw + beat].forEach(function (bug) {
+        ctx.fillStyle = CY;
+        ctx.beginPath();
+        ctx.moveTo(Math.sin(bug) * (r + 5), -Math.cos(bug) * (r + 5));
+        ctx.lineTo(Math.sin(bug + 0.09) * (r - 3), -Math.cos(bug + 0.09) * (r - 3));
+        ctx.lineTo(Math.sin(bug - 0.09) * (r - 3), -Math.cos(bug - 0.09) * (r - 3));
+        ctx.closePath(); ctx.fill();
+      });
     }
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     var wfs = U.clamp(size * 0.118, 9, 13);
@@ -202,15 +216,28 @@
     if (c.two) right('draft ' + v.draft().toFixed(2), c.rx, c.r2);
     bar(c, v.ukc / 4, bad ? BAD : warn ? ACC : CY);
   }
-  function cellSpeed(x, y, w, h, v) {
+  function cellSpeed(x, y, w, h, v, wpBrg) {
     var c = cell(x, y, w, h, 'speed');
     label('SPEED kn', x + 6, y + 4);
     big((v.stw * U.MS2KN).toFixed(1), c.bx, c.by, c.big, INK);
+    /* VMG: to the waypoint when one is set; to windward when beating.
+       Needs the wind unit — reading it off the water IS the lesson. */
+    var vmg = null;
+    if (v.has('windinst') && v.sailArea().total > 0.5) {
+      if (wpBrg !== null && wpBrg !== undefined && v.sog > 0.15)
+        vmg = v.sog * Math.cos(U.angDiff(v.cog, wpBrg)) * U.MS2KN;
+      else {
+        var twaR = U.wrapPI(v.twd - v.hdg);
+        if (Math.abs(U.deg(twaR)) < 90 && v.stw > 0.15) vmg = v.stw * Math.cos(twaR) * U.MS2KN;
+      }
+    }
     if (v.has('gps')) {
       right((v.sog * U.MS2KN).toFixed(1) + ' SOG', c.rx, c.r1, CY, '600');
-      if (c.two) right('COG ' + U.brgStr(v.cog), c.rx, c.r2);
+      if (c.two) right(vmg !== null ? 'VMG ' + vmg.toFixed(1) : 'COG ' + U.brgStr(v.cog), c.rx, c.r2,
+        vmg !== null && vmg < 0 ? BAD : DIM);
     } else {
-      right('STW · hull ' + v.hullSpeedKn.toFixed(1), c.rx, c.r1);
+      right(vmg !== null ? 'VMG ' + vmg.toFixed(1) : 'STW · hull ' + v.hullSpeedKn.toFixed(1), c.rx, c.r1,
+        vmg !== null && vmg < 0 ? BAD : DIM);
       if (c.two) right('log ' + (v.log / U.NM).toFixed(1) + ' NM', c.rx, c.r2);
     }
     bar(c, (v.stw * U.MS2KN) / v.hullSpeedKn, (v.stw * U.MS2KN) > v.hullSpeedKn * 0.94 ? ACC : CY);
@@ -269,7 +296,7 @@
     var restW = cw - dx - 2, restH = ch - 6;
     var colW = restW / 2, rowH = restH / 2;
     cellDepth(dx, 3, colW - gap, rowH - gap / 2, v);
-    cellSpeed(dx + colW, 3, colW - gap, rowH - gap / 2, v);
+    cellSpeed(dx + colW, 3, colW - gap, rowH - gap / 2, v, wpBrg);
     cellEngine(dx, 3 + rowH, colW - gap, rowH - gap / 2, v);
     cellTide(dx + colW, 3 + rowH, colW - gap, rowH - gap / 2, v);
   };
